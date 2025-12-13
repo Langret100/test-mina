@@ -23,7 +23,7 @@
   // Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹) → SDK 설정 및 구성에서
   // 제공하는 구성 객체를 아래 SOCIAL_CHAT_FIREBASE_CONFIG 에 붙여넣어 주세요.
   var SOCIAL_CHAT_FIREBASE_CONFIG = {
-    apiKey: "AIzaSyCALueOFTz3SJ4wnfyDlssqK9jmu3FyV-U",
+    apiKey: "__FIREBASE_API_KEY__",
     authDomain: "web-ghost-c447b.firebaseapp.com",
     databaseURL: "https://web-ghost-c447b-default-rtdb.firebaseio.com",
     projectId: "web-ghost-c447b",
