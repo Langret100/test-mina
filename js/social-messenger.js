@@ -20,7 +20,7 @@
 
   // Firebase 설정: social-chat-firebase.js 와 동일
   var FIREBASE_CONFIG = {
-    apiKey: "AIzaSyCALueOFTz3SJ4wnfyDlssqK9jmu3FyV-U",
+    apiKey: "__FIREBASE_API_KEY__",
     authDomain: "web-ghost-c447b.firebaseapp.com",
     databaseURL: "https://web-ghost-c447b-default-rtdb.firebaseio.com",
     projectId: "web-ghost-c447b",
