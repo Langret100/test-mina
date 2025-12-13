@@ -1414,6 +1414,32 @@ Apps Script 쪽에서는 `mode` 값이
 - `js/social-messenger.js`
 
 
+## v86 (social messenger) v9.3.14 업그레이드(대화방/signals)(2025-12-13)
+
+- "📱 실시간 톡 보기"(games/social-messenger.html) 구버전 메신저(socialChat) 대신,
+  대화방/비밀번호/라벨열 지원 + 첨부(+메뉴)/QR 스캔/URL 자동 링크/유튜브 미리보기/알림(띠리링)/이미지 확대 보기까지 포함된
+  업그레이드 메신저(v9.3.14)로 교체했습니다.
+
+- 메시지 본문 저장은 Google Sheet만 사용하고, Firebase는 signals 트리거(갱신/알림) 용도로만 사용하도록 구성되어 있습니다.
+
+- 메인 앱과의 호환을 위해, 기존 경로(games/social-messenger.html)와
+  기존 실행 방식(오버레이에서 iframe으로 열기)은 그대로 유지합니다.
+
+변경 파일:
+- `games/social-messenger.html` (교체)
+- `js/social-messenger.js` (교체)
+- `js/config.js` (추가)
+- `js/chat-photo.js` (추가)
+- `js/chat-file.js` (추가)
+- `js/chat-rooms.js` (추가)
+- `js/room-panel-toggle.js` (추가)
+- `js/room-guard.js` (추가)
+- `js/chat-linkify.js` (추가)
+- `js/chat-qr.js` (추가)
+- `js/signals.js` (추가)
+- `js/room-message-stream.js` (추가)
+
+
 ## 변경 기록
 
 - (v85 fix16) 구구단/덧셈주사위/꿈틀이도형추적자/수학탐험대에서만 게임 오버레이 배경을 투명 처리하고 우측 상단 ✕ 닫기 버튼을 표시하도록 개선.
