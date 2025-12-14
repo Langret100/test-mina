@@ -546,6 +546,21 @@
       color: #6b7280;
     }
 
+    /* 방별 미확인(새 글) 표시: 오른쪽 위 점 */
+    .room-item { position: relative; padding-right: 38px; }
+    .room-unread-badge{
+      position:absolute;
+      top: 12px;
+      right: 12px;
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #ef4444;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.95);
+      display: none;
+    }
+    .room-unread-badge.show{ display:block; }
+
     .chat-panel {
       flex: 1;
       display: flex;
@@ -716,6 +731,7 @@
   <script src="../js/chat-emoji.js"></script>
   <script src="../js/chat-photo.js"></script>
   <script src="../js/chat-file.js"></script>
+  <script src="../js/room-unread-badge.js"></script>
   <script src="../js/chat-rooms.js"></script>
   <script src="../js/room-panel-toggle.js"></script>
   <script src="../js/room-guard.js"></script>

@@ -18,7 +18,21 @@
 - `css/ghost.css` : `+` 메뉴(`#plusMenu`)의 가로 폭/패딩을 줄여 우측 빈 공간을 축소. (이모티콘 선택창과는 별도 스타일로 유지)
 
 
+
+
 ---
+
+### 2025-12-14 보안 처리 (GitHub Secret scanning 경고 제거)
+- Firebase 웹 설정의 `apiKey`(AIza... 패턴)가 공개 저장소에 커밋되면 GitHub에서 **Secret scanning 경고**가 뜰 수 있어,
+  `apiKey`를 코드에 직접 넣지 않고 **"__FIREBASE_API_KEY__" 플레이스홀더**로 교체했습니다.
+- 배포는 **GitHub Pages + GitHub Actions** 방식으로 전환하여, 배포 단계에서만
+  Repository Secret(`FIREBASE_API_KEY`) 값을 플레이스홀더에 치환한 결과물을 Pages에 올립니다.
+- 변경 파일:
+  - `js/social-messenger.js`
+  - `js/social-chat-firebase.js`
+  - `js/messenger-reply-ghost-bubble.js`
+- 워크플로 위치(레포에 생성): `.github/workflows/pages.yml`
+
 
 ### 2025-11-17 UI 수정 (v33 유지)
 - `js/game-ghost.js` 모듈을 새로 추가하여, 각 게임(구구단게임 / 덧셈주사위 / 꿈틀꿈틀 도형 추적자) iframe 안에서만 보이는 **작은 게임용 고스트**를 별도로 표시하도록 변경.
@@ -1362,7 +1376,7 @@ Apps Script 쪽에서는 `mode` 값이
   - 그리드를 72px 4열 기준으로 정렬하여 이모티콘이 패널 밖으로 튀어나오지 않도록 개선
 
 - "📱 실시간 톡 보기" 전용 캐릭터 멘트 적용
-  - 열 때: "저는 잠시 조용히 있을게요. 나 마이파 톡을 열게요."로 말하도록 변경
+  - 열 때: "저는 잠시 조용히 있을게요." 또는 "마이파 톡을 열게요." 중 무작위로 말하도록 변경
   - 끌 때: 게임 종료 멘트는 출력하지 않도록 변경
 
 변경 파일:
@@ -1445,3 +1459,27 @@ Apps Script 쪽에서는 `mode` 값이
 - (v85 fix16) 구구단/덧셈주사위/꿈틀이도형추적자/수학탐험대에서만 게임 오버레이 배경을 투명 처리하고 우측 상단 ✕ 닫기 버튼을 표시하도록 개선.
 
 - (v85 fix17) 일부 게임에서 ✕ 버튼이 iframe에 가려져 사라지는 문제를 해결: game-frame z-index 조정 + 닫기 버튼을 오버레이 직속으로 이동하여 항상 위에 표시되도록 수정.
+
+- (v85 fix18) 실시간 톡(메신저)에서 새 메시지 알림이 온 "대화방"을 방 목록에서 바로 구분할 수 있도록, 해당 방 카드 오른쪽 위에 미확인(점) 표시를 추가. 방으로 들어가 확인하면 자동으로 사라지도록 처리.
+  - 변경/추가: `games/social-messenger.html`, `js/social-messenger.js`, `js/chat-rooms.js`, `js/room-unread-badge.js`
+
+- (v85 fix19) 메신저(실시간 톡) 창을 열지 않은 상태에서, "내가 마지막으로 쓴 글" 이후 다른 사람이 새 글을 달면 메인 화면 캐릭터가 말풍선으로 알려주도록 추가.
+  - 변경/추가: `index.html`, `js/signals.js`(메인 include), `js/messenger-reply-ghost-bubble.js`(추가)
+
+- (v85 fix20) "마이파 톡" 열기/닫기 시 캐릭터 대사 동작 수정.
+  - 열 때: 2개 문장 중 하나만 무작위로 말하도록 수정(이어 말하기/붙여 말하기 방지)
+  - 닫을 때: 다른 게임과 달리 종료 대사를 완전히 하지 않도록 처리(기본대기 복귀도 silent)
+  - 변경: `js/game-manager.js`
+
+- (v85 fix21) 메신저 답글 말풍선 알림이 "전체 대화방"뿐 아니라 **다른 대화방에서도** 동작하도록 개선 + 말풍선에 **대화방 이름을 포함**해 읽어주도록 수정.
+- (v85 fix22) 메인 캐릭터의 메신저 답글 알림을 **내가 실제로 들어가 본 방만** 말하도록 변경(ghostRoomVisited_v1) + 방 입장/나가기 시 기록 갱신 + SignalBus가 여러 화면에서 동시에 붙어도 알림이 누락되지 않게 **다중 리스너** 지원으로 개선.
+- (v85 fix23) signals(/signals/<room>/last) 노드를 수신 시 삭제하지 않도록 정책 변경(발신자 remove로 다른 클라이언트가 알림을 놓치는 문제 방지) + 알림/소리/빨간점/캐릭터 멘트를 **visited(실제 입장한) 방만** 발생하도록 전체 통일 + 기본 채팅창의 마이파-톡(전체 대화방)도 signals 기반으로 실시간 갱신.
+  - 방 목록 캐시(ghostRoomsCache_v1)의 실제 포맷({ts, rooms:[...]})을 반영해, 내 방 목록을 정확히 구독하도록 수정.
+  - 말풍선 문장 예: "XX대화방에 답글이 달렸어요.", "WW대화방에서 누가 말했나봐요.", "EE대화방을 확인해 볼까요?"
+  - 변경: `js/messenger-reply-ghost-bubble.js`
+
+- (v85 fix25) (B안 적용) Firebase는 저장이 아닌 **중계(릴레이)**로만 사용하도록 개선: /signals/<room>/q 휘발성 큐에 메시지 payload(mid 포함)를 push → sender가 지연 삭제하여 다른 클라이언트가 놓치지 않게 처리 + 전송 실패 시 retract로 롤백. 메신저(실시간 톡)와 기본 채팅창의 마이파-톡(전체 대화방) 모두 실시간 표시가 즉시 반영되도록 개선.
+- (v85 fix26) fix25 회귀 버그 수정: 기본 채팅창(마이파-톡) 초기화 오류(onLogScroll 누락) 복구 + Firebase 릴레이로 먼저 보이는 메시지가 시트 갱신 시 사라지지 않도록 **merge 방식**으로 변경(기본 채팅/실시간 톡 모두) + 모바일에서 + 버튼이 떠버리던 고정 위치 CSS 제거 + 모바일 채팅창(전체) 위치 10px 하향 유지.
+  - 추가/변경: `js/signals.js`, `js/social-messenger.js`, `js/social-chat-firebase.js`
+  - 모바일: 기본 채팅창 위치(bottom) 10px 조정 + ghost.css 모바일 블록 문법 오류(중괄호/세미콜론) 정리.
+  - 변경: `css/ghost.css`
