@@ -489,11 +489,11 @@ body.is-game-mode #ghostContainer {
 /* 반응형 */
     @media (max-width: 768px) {
       #ghostContainer {
-        right: -110px;
-        bottom: 80px; /* 모바일: 네비게이션 바 위쪽으로 조금만 띄우기 */
+        right: -148px;        /* scale(2.4) 기준 오른쪽 잘림 방지 */
+        bottom: 80px;
         width: 216px;
         height: 216px;
-        transform: scale(2.0);
+        transform: scale(2.4);
         transform-origin: bottom right;
       }
       #ghost {
@@ -3232,6 +3232,7 @@ body.always-listen-center #bubbleWrapper .bubble::after {
    모바일: + 버튼 좌상단 고정 배치 (업데이트 v9.3+)
    ============================== */
 @media (max-width: 768px) {
+  /* 일반 모드: + 버튼 좌상단 고정 */
   .ghost-plus-wrapper {
     position: fixed;
     top: 14px;
@@ -3246,6 +3247,26 @@ body.always-listen-center #bubbleWrapper .bubble::after {
     bottom: auto;
     left: 0;
     right: auto;
+  }
+
+  /* 소통(social) 모드: 이모티콘 숨기고 + 버튼 inputRow 안으로 */
+  #chatPanel.chat-panel-social .emoji-wrapper {
+    display: none !important;
+  }
+  #chatPanel.chat-panel-social .ghost-plus-wrapper {
+    position: relative;
+    top: auto;
+    left: auto;
+    z-index: auto;
+  }
+  #chatPanel.chat-panel-social #ghostPlus {
+    opacity: 1;
+  }
+  #chatPanel.chat-panel-social #plusMenu {
+    top: auto;
+    bottom: 40px;
+    left: auto;
+    right: 0;
   }
 }
 
@@ -3323,13 +3344,13 @@ body.always-listen-center #bubbleWrapper .bubble::after {
   transform: translate3d(var(--plx-x), var(--plx-y), 0);
 }
 
-/* L2 캐릭터 — PC: translate만, 모바일: 기존 scale(2.0) + translate 합산 */
+/* L2 캐릭터 — PC: translate만, 모바일: scale(2.4) + translate 합산 */
 #ghostContainer {
   transform: translate3d(var(--plx-x), var(--plx-y), 0);
 }
 @media (max-width: 768px) {
   #ghostContainer {
-    transform: scale(2.0) translate3d(var(--plx-x), var(--plx-y), 0);
+    transform: scale(2.4) translate3d(var(--plx-x), var(--plx-y), 0);
     transform-origin: bottom right;
   }
 }
