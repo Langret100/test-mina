@@ -191,12 +191,12 @@ body.is-game-mode #ghostContainer {
     }
     #bubbleWrapper.hidden {
       opacity: 0;
-      transform: translate(var(--bubble-shift-x, 0), 4px);
+      transform: translate3d(calc(var(--bubble-shift-x, 0px) + var(--plx-x, 0px)), calc(4px + var(--plx-y, 0px)), 0);
       transition: opacity 0.18s ease-out, transform 0.18s ease-out;
     }
     #bubbleWrapper.visible {
       opacity: 1;
-      transform: translate(var(--bubble-shift-x, 0), 0);
+      transform: translate3d(calc(var(--bubble-shift-x, 0px) + var(--plx-x, 0px)), var(--plx-y, 0px), 0);
       transition: opacity 0.18s ease-out, transform 0.18s ease-out;
     }
 
@@ -2326,8 +2326,10 @@ body {
   .clock-widget {
     top: 10px;
     left: 14px;
-    font-size: 40px;
+    font-size: 48px;
     letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.72);
+    text-shadow: 0 0 12px rgba(255,255,255,0.55), 0 2px 6px rgba(0,0,0,0.4);
   }
 }
 
@@ -3223,4 +3225,134 @@ body.always-listen-center #bubbleWrapper .bubble::after {
   background: #6ea8ff;
   color: #0f1a2d;
   font-weight: 700;
+}
+
+
+/* ==============================
+   모바일: + 버튼 좌상단 고정 배치 (업데이트 v9.3+)
+   ============================== */
+@media (max-width: 768px) {
+  .ghost-plus-wrapper {
+    position: fixed;
+    top: 14px;
+    left: 16px;
+    z-index: 50;
+  }
+  #ghostPlus {
+    opacity: 0.5;
+  }
+  #plusMenu {
+    top: 40px;
+    bottom: auto;
+    left: 0;
+    right: auto;
+  }
+}
+
+/* ==============================
+   로그인 자동 완료 오버레이(이미 로그인 상태에서 1회 표시)
+   ============================== */
+#loginPanel.autoclose-mode .login-inner {
+  opacity: 0;
+  pointer-events: none;
+}
+#loginPanel.autoclose-mode .login-logo-floating {
+  opacity: 0;
+}
+.login-auto-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1400;
+}
+.login-auto-overlay.hidden {
+  display: none;
+}
+.login-auto-card {
+  background: #fffdf7;
+  border-radius: 16px;
+  padding: 18px 22px;
+  box-shadow: 0 12px 24px rgba(0,0,0,0.25);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════
+   parallax-3d.js — CSS 변수 기반 패럴랙스 오프셋
+   JS가 --plx-x / --plx-y 값만 업데이트하면
+   각 요소가 기존 transform에 translate를 합산한다.
+   기존 transform은 절대 덮어쓰지 않는다.
+   ═══════════════════════════════════════════════════════ */
+
+/* 초기값 */
+#bg-container, #waveBackground, #snowLayer,
+#ghostContainer, #bubbleWrapper,
+#chatDock,
+#clockWidget, #questStatusBar,
+#notebook-menu-overlay, #boardPanel, #manualPanel,
+#teachModal, #bgSelectPanel, #boardWriteModal {
+  --plx-x: 0px;
+  --plx-y: 0px;
+}
+
+/* L1 배경 — 패럴랙스 이동 시 가장자리 노출 방지: 110% 크기로 중앙 기준 표시 */
+#waveBackground {
+  width: 110%;
+  height: 110%;
+  top: -5%;
+  left: -5%;
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
+}
+/* bg-container: 110% 크기, 중앙 기준, 패럴랙스 이동 합산 */
+#bg-container {
+  width: 110% !important;
+  height: 110% !important;
+  top: -5% !important;
+  left: -5% !important;
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
+}
+
+/* L1-b 눈 배경 레이어 */
+#snowLayer {
+  width: 110%;
+  height: 110%;
+  top: -5%;
+  left: -5%;
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
+}
+
+/* L2 캐릭터 — PC: translate만, 모바일: 기존 scale(2.0) + translate 합산 */
+#ghostContainer {
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
+}
+@media (max-width: 768px) {
+  #ghostContainer {
+    transform: scale(2.0) translate3d(var(--plx-x), var(--plx-y), 0);
+    transform-origin: bottom right;
+  }
+}
+
+/* L3 채팅창 — 기존 translateX(-50%) 유지 + 패럴랙스 합산 */
+#chatDock {
+  transform: translateX(calc(-50% + var(--plx-x))) translateY(var(--plx-y));
+}
+
+/* L3-b 시계 + 퀘스트바 */
+#clockWidget {
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
+}
+#questStatusBar {
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
+}
+
+/* L4 작은 패널 — 기존 transform 없음 */
+#notebook-menu-overlay,
+#boardPanel,
+#manualPanel,
+#teachModal,
+#bgSelectPanel,
+#boardWriteModal {
+  transform: translate3d(var(--plx-x), var(--plx-y), 0);
 }

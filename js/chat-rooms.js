@@ -147,13 +147,33 @@
     var out = Array.isArray(list) ? list.slice() : [];
     out = ensureGlobalRoom(out);
 
-    // 이름 기준 정렬(단, global은 항상 맨 위)
+    // 정렬: global 항상 맨 위 → 미확인 있는 방 → 최근 방문 순
     out.sort(function (a, b) {
       var ag = a && (a.is_global || String(a.room_id || "") === "global");
       var bg = b && (b.is_global || String(b.room_id || "") === "global");
       if (ag && !bg) return -1;
       if (!ag && bg) return 1;
       if (!a || !b) return 0;
+
+      // 미확인(unread) 있는 방 우선
+      var aUnread = 0, bUnread = 0;
+      try {
+        var counts = JSON.parse(localStorage.getItem("ghostUnreadCounts_v1") || "{}");
+        aUnread = counts[String(a.room_id || "")] || 0;
+        bUnread = counts[String(b.room_id || "")] || 0;
+      } catch(e) {}
+      if (aUnread > 0 && bUnread === 0) return -1;
+      if (aUnread === 0 && bUnread > 0) return 1;
+
+      // 최근 방문한 방 우선
+      var aTs = 0, bTs = 0;
+      try {
+        var visited = JSON.parse(localStorage.getItem("ghostRoomVisited_v1") || "{}");
+        aTs = visited[String(a.room_id || "")] || 0;
+        bTs = visited[String(b.room_id || "")] || 0;
+      } catch(e) {}
+      if (aTs !== bTs) return bTs - aTs; // 최근 방문 내림차순
+
       return (String(a.name || "")).localeCompare(String(b.name || ""), "ko");
     });
     return out;
@@ -200,29 +220,65 @@
       item.className = "room-item" + (r.room_id === activeRoomId ? " active" : "");
       item.setAttribute("data-room-id", r.room_id);
 
+      // ── 프로필 그리드 아이콘 (카톡 스타일) ──
+      var icon = document.createElement("div");
+      icon.className = "room-item-icon";
+      var participants2 = Array.isArray(r.participants) ? r.participants : [];
+
+      if (r.room_id === "global") {
+        icon.textContent = "🌐";
+        icon.style.fontSize = "22px";
+      } else if (participants2.length === 0) {
+        icon.textContent = "💬";
+        icon.style.fontSize = "20px";
+      } else {
+        var showList = participants2.slice(0, 4);
+        icon.classList.add(
+          showList.length === 1 ? "room-icon-grid-1" :
+          showList.length === 2 ? "room-icon-grid-2" : "room-icon-grid-4"
+        );
+        showList.forEach(function (nick) {
+          var av = document.createElement("img");
+          av.className = "room-icon-avatar";
+          av.setAttribute("data-profile-nick", nick);
+          av.alt = nick;
+          av.src = (window.ProfileManager && window.ProfileManager.getAvatarUrl)
+            ? window.ProfileManager.getAvatarUrl(nick) : "";
+          av.onerror = function () {
+            this.onerror = null;
+            this.src = (window.ProfileManager && window.ProfileManager.DEFAULT_AVATAR) || "";
+          };
+          if (window.ProfileManager && window.ProfileManager.fetchAndCacheProfile) {
+            setTimeout(function () { window.ProfileManager.fetchAndCacheProfile(nick); }, 600);
+          }
+          icon.appendChild(av);
+        });
+      }
+      item.appendChild(icon);
+
+      // 정보 래퍼
+      var info = document.createElement("div");
+      info.className = "room-item-info";
+
       var name = document.createElement("div");
       name.className = "room-name";
       name.textContent = r.name || "대화방";
-      item.appendChild(name);
+      info.appendChild(name);
 
       var meta = document.createElement("div");
       meta.className = "room-meta";
-
       var hasPwd2 = !!r.has_password || (r.enter_mode === "password");
-      var participants2 = Array.isArray(r.participants) ? r.participants : [];
-      var c = (typeof r.members_count === "number") ? r.members_count : (participants2.length ? participants2.length : 0);
+      var c = (typeof r.members_count === "number") ? r.members_count
+            : (participants2.length ? participants2.length : 0);
       var me2 = safeNick();
-
-      var isPublic2 = !hasPwd2; // 비번 없으면 공개방
-var isMember2 = isPublic2 || (participants2.indexOf(me2) >= 0);
-
-      // 표시 라벨: 공개방/비번방만 사용(초대/입장제한 라벨 제거)
+      var isMember2 = !hasPwd2 || (participants2.indexOf(me2) >= 0);
       if (hasPwd2 && !isMember2) meta.textContent = "🔒 비번 필요";
-      else if (hasPwd2) meta.textContent = c ? ("참여 " + c) : "🔒 비번방";
-      else meta.textContent = "공개";
-item.appendChild(meta);
+      else if (hasPwd2) meta.textContent = c ? ("참여 " + c + "명") : "🔒 비번방";
+      else meta.textContent = c ? ("참여 " + c + "명") : "공개방";
+      info.appendChild(meta);
+      item.appendChild(info);
 
-      // (미확인 표시) 방에 새 글이 있으면 오른쪽 위 점 표시
+      // 미확인 배지
       try {
         if (window.RoomUnreadBadge && typeof window.RoomUnreadBadge.applyToItem === "function") {
           window.RoomUnreadBadge.applyToItem(item, r.room_id);
@@ -490,6 +546,18 @@ item.appendChild(meta);
   }
 
   function loadRooms() {
+    // Firebase에서 먼저 빠르게 렌더 (캐시 역할)
+    if (window.FirebaseRooms && typeof window.FirebaseRooms.loadRoomsFromFirebase === "function") {
+      window.FirebaseRooms.loadRoomsFromFirebase().then(function (fbRooms) {
+        if (fbRooms && fbRooms.length > 0) {
+          var merged = normalizeRooms(fbRooms);
+          rooms = merged;
+          render(); // Firebase 데이터로 즉시 표시
+        }
+      }).catch(function () {});
+    }
+
+    // 시트 API로 정확한 데이터 갱신 (백그라운드)
     return api({
       mode: "social_rooms",
       nickname: safeNick()
@@ -497,10 +565,15 @@ item.appendChild(meta);
       if (!json || !json.ok) throw new Error("rooms api fail");
       rooms = normalizeRooms(json.rooms || []);
 
+      // 시트에서 받은 방 목록을 Firebase에 동기화 (다음 로딩 시 빠르게)
+      try {
+        if (window.FirebaseRooms) window.FirebaseRooms.syncRoomsToFirebase(json.rooms || []);
+      } catch (eFbSync) {}
+
       // 방문 기록은 현재 목록 기준으로 정리(삭제된 방 구독 방지)
       pruneVisitedAgainstRooms(rooms);
 
-      // 방 목록 캐시(localStorage): 패널이 닫혀 있어도 signals 구독/표시용으로 사용
+      // 방 목록 캐시(localStorage)
       try {
         var slim = (rooms || []).map(function (r) {
           if (!r) return null;
@@ -519,21 +592,19 @@ item.appendChild(meta);
         localStorage.setItem(LS_ROOMS_CACHE, JSON.stringify({ ts: Date.now(), rooms: slim }));
       } catch (eCache) {}
 
-      // signals 구독 대상(내 소속 방들) 갱신
+      // signals 구독 대상 갱신
       try {
         if (window.SignalBus && typeof window.SignalBus.syncRooms === "function") {
           window.SignalBus.syncRooms(getMySignalRoomIds(rooms || []), "rooms-panel");
         }
       } catch (e) {}
 
-      // 현재 활성 방은 유지(목록 갱신으로 사라진 경우만 비우기)
       var prev = activeRoomId;
       var exists = activeRoomId ? rooms.some(function (r) { return r && r.room_id === activeRoomId; }) : false;
       if (!exists) {
         activeRoomId = null;
         try { localStorage.removeItem(LS_ACTIVE_ID); localStorage.removeItem(LS_ACTIVE_NAME); } catch (e0) {}
       } else {
-        // 활성 방 이름 갱신(표시용)
         try {
           var ar = getActiveRoom();
           if (ar && ar.name) localStorage.setItem(LS_ACTIVE_NAME, String(ar.name));
@@ -542,7 +613,6 @@ item.appendChild(meta);
 
       render();
 
-      // 활성 방이 바뀐 경우에만 콜백(불필요한 방 이동/메시지 로딩 방지)
       try {
         if (prev !== activeRoomId && typeof window.__onRoomChanged === "function") {
           window.__onRoomChanged(activeRoomId, getActiveRoom());
@@ -550,7 +620,6 @@ item.appendChild(meta);
       } catch (e2) {}
       return rooms;
     }).catch(function () {
-      // 서버 미지원 시: 방 목록 비움
       var prev = activeRoomId;
       rooms = normalizeRooms([]);
       activeRoomId = null;

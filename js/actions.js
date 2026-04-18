@@ -116,22 +116,23 @@ if (typeof setEmotion === "function") {
   }
 
 // 전송 버튼 클릭
-  if (sendBtn && typeof handleUserSubmit === "function") {
+  if (sendBtn) {
     sendBtn.addEventListener("click", () => {
       // 음성 입력(long press)으로 이미 처리된 클릭은 무시
       if (window.__voiceInputLastWasLongPress) {
         window.__voiceInputLastWasLongPress = false;
         return;
       }
-      handleUserSubmit();
+      // window.handleUserSubmit 참조 — social-chat-firebase.js 패치 적용됨
+      if (typeof window.handleUserSubmit === "function") window.handleUserSubmit();
     });
   }
 
   // Enter 키로 전송
-  if (userInput && typeof handleUserSubmit === "function") {
+  if (userInput) {
     userInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.isComposing) {
-        handleUserSubmit();
+        if (typeof window.handleUserSubmit === "function") window.handleUserSubmit();
       }
     });
   }

@@ -2281,6 +2281,9 @@ window.addEventListener("message", async function (ev) {
     else if (method === "getUnifiedCharacterChatResponse") result = await getUnifiedCharacterChatResponse(args[0], args[1] || {});
     else if (method === "getCharacterChatResponse") result = await getCharacterChatResponse(args[0]);
     else if (method === "ensureLearnedReactionsReady") result = await ensureLearnedReactionsReady();
+    else if (method === "getCurrentCharacterFaceImg") {
+      try { const emo = EMO[currentEmotion]; result = (emo && emo.base) ? emo.base : (EMO["기본대기"] ? EMO["기본대기"].base : "images/emotions/기본대기1.png"); } catch(e) { result = "images/emotions/기본대기1.png"; }
+    }
     source.postMessage({ type: "WG_CORE_BRIDGE_RESPONSE", requestId, ok: true, result }, "*");
   } catch (err) {
     source.postMessage({
@@ -2299,11 +2302,20 @@ window.GhostCoreBridge = Object.assign({}, window.GhostCoreBridge || {}, {
   getUnifiedCharacterChatResponse: getUnifiedCharacterChatResponse,
   extractCharacterCallText: extractCharacterCallText,
   getCurrentCharacterName: function(){ return currentCharacterName || "고스트"; },
+  getCurrentCharacterFaceImg: function(){
+    // 현재 감정의 얼굴 이미지 경로 반환 (메신저 아바타 용)
+    try {
+      var emo = EMO[currentEmotion];
+      if (emo && emo.base) return emo.base;
+      if (EMO["기본대기"] && EMO["기본대기"].base) return EMO["기본대기"].base;
+    } catch(e) {}
+    return "images/emotions/기본대기1.png";
+  },
   getDateTimeResponse: function(text){ const req = detectDateTimeRequest(text); return req ? buildDateTimeResponse(req) : null; }
 });
 window.tryHandleMessengerVoiceCommand = tryHandleMessengerVoiceCommand;
 
-async function handleUserSubmit() {
+window.handleUserSubmit = async function handleUserSubmit() {
       if (shutdown) return;
       const text = userInput.value.trim();
       if (!text) return;

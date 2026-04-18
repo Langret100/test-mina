@@ -42,8 +42,8 @@
   }
 
   async function uploadToSheet(opts) {
+    // Google Drive 업로드 (Apps Script 경유)
     // opts: { base64, mime, filename, size, user_id, nickname, ts }
-    if (typeof window.fetch !== "function") throw new Error("fetch not available");
     if (typeof window.SHEET_IMAGE_UPLOAD_URL === "undefined" || !window.SHEET_IMAGE_UPLOAD_URL) {
       throw new Error("SHEET_IMAGE_UPLOAD_URL not configured");
     }
@@ -57,18 +57,15 @@
     body.append("nickname", opts.nickname || "");
     body.append("ts", String(opts.ts || Date.now()));
 
-    var res = await fetch(window.SHEET_IMAGE_UPLOAD_URL, {
-      method: "POST",
-      body: body
-    });
+    var res = await fetch(window.SHEET_IMAGE_UPLOAD_URL, { method: "POST", body: body });
     var txt = await res.text();
     var json = {};
     try { json = JSON.parse(txt || "{}"); } catch (e) {}
-    if (!res.ok || !json || !json.ok) {
-      throw new Error((json && json.error) ? json.error : "upload failed");
+    console.log("[chat-file] 응답:", txt.slice(0, 300));
+    var url = json.url || json.file_url || json.fileUrl || json.image_url || json.link || json.downloadUrl || "";
+    if (!url) {
+      throw new Error((json && json.error) ? json.error : "no url in response: " + txt.slice(0, 150));
     }
-    var url = json.url || json.file_url || "";
-    if (!url) throw new Error("no url returned");
     return { url: url };
   }
 
@@ -129,6 +126,25 @@
 
   window.ChatFile = {
     DEFAULT_MAX_BYTES: DEFAULT_MAX_BYTES,
-    pickAndUpload: pickAndUpload
+    pickAndUpload: pickAndUpload,
+    open: function () {
+      var me = "";
+      try {
+        if (window.currentUser && window.currentUser.nickname) me = window.currentUser.nickname;
+        else { var raw = localStorage.getItem("ghostUser"); if (raw) { var u = JSON.parse(raw); if (u && u.nickname) me = u.nickname; } }
+      } catch (e) {}
+      pickAndUpload({
+        user_id: (window.currentUser && window.currentUser.user_id) || "",
+        nickname: me
+      }).then(function (result) {
+        if (typeof window.sendChatFile === "function") {
+          window.sendChatFile(result.url, result.fileName || "파일");
+        }
+      }).catch(function (err) {
+        if (err && err.message !== "no file") {
+          if (typeof window.showBubble === "function") window.showBubble("파일 업로드에 실패했어요.");
+        }
+      });
+    }
   };
 })();

@@ -18,10 +18,14 @@
   if (window.SocialMessengerView) return;
   window.SocialMessengerView = true;
 
-  // [보안] GitHub 공개 저장소에서 apiKey(AIza...)가 노출 경고가 뜨지 않도록
-  // apiKey는 "__FIREBASE_API_KEY__" 플레이스홀더로 두고, 배포(GitHub Actions) 단계에서만
-  // Repository Secret(FIREBASE_API_KEY) 값으로 치환해 Pages에 올리는 방식을 사용합니다.
   // Firebase 설정: social-chat-firebase.js 와 동일
+/* GITHUB_PAGES_SECRET_INJECT
+ * 공개 GitHub 저장소에서 Google API Key(AIza...) 노출 경고를 피하기 위해,
+ * apiKey 값은 커밋하지 않고 "__FIREBASE_API_KEY__" 플레이스홀더로 둡니다.
+ * GitHub Pages 배포 시 GitHub Actions(.github/workflows/pages.yml)가
+ * Secrets(FIREBASE_API_KEY)에 저장된 실제 키로 이 값을 치환해서 배포합니다.
+ */
+
   var FIREBASE_CONFIG = {
     apiKey: "__FIREBASE_API_KEY__",
     authDomain: "web-ghost-c447b.firebaseapp.com",
@@ -137,6 +141,9 @@ var notifyBtn = makeItem("", function () { menu._fire && menu._fire("toggleNotif
 menu._notifyBtn = notifyBtn;
 menu.appendChild(notifyBtn);
 
+    // 로그아웃(요청: + 메뉴에 추가)
+    menu.appendChild(makeItem("🚪 로그아웃", function () { menu._fire && menu._fire("logout"); }));
+
     root.appendChild(menu);
     return menu;
   }
@@ -177,6 +184,7 @@ menu.appendChild(notifyBtn);
       if (type === "pickImage") return options.onPickImage && options.onPickImage();
       if (type === "pickFile") return options.onPickFile && options.onPickFile();
       if (type === "toggleNotify") return options.onToggleNotify && options.onToggleNotify();
+      if (type === "logout") return options.onLogout && options.onLogout();
     };
 
     btn.addEventListener("click", function (e) {
@@ -508,9 +516,199 @@ var NotifySetting = (function () {
   }
 
     function getFirebasePath(roomId) {
-    // Firebase에는 "메시지 본문"을 절대 저장하지 않습니다.
-    // (기록은 Google Sheet에만 저장 / Firebase는 signals 트리거만 사용)
-    return null;
+    // Firebase Realtime DB 에 메시지를 저장합니다.
+    // 경로: /messages/{roomId}
+    if (!roomId) return null;
+    var safeId = String(roomId).replace(/[.#$\[\]\/]/g, "_");
+    return "messages/" + safeId;
+  }
+
+  // 30일 이전 Firebase 메시지 삭제 (Firebase만, 시트는 유지)
+  var __lastPruneTs = {};
+  function __pruneOldFirebaseMessages(roomId) {
+    if (!roomId) return;
+    var now = Date.now();
+    if (__lastPruneTs[roomId] && (now - __lastPruneTs[roomId]) < 60000) return; // 1분 쓰로틀
+    __lastPruneTs[roomId] = now;
+    try {
+      var cutoff = now - (10 * 24 * 60 * 60 * 1000); // 10일
+      var __fbDb2 = ensureFirebase();
+      var __fbPath2 = getFirebasePath(roomId);
+      if (!__fbDb2 || !__fbPath2) return;
+      __fbDb2.ref(__fbPath2).orderByChild("ts").endAt(cutoff).once("value").then(function (snap) {
+        if (!snap.exists()) return;
+        var updates = {};
+        snap.forEach(function (child) { updates[child.key] = null; });
+        if (Object.keys(updates).length > 0) __fbDb2.ref(__fbPath2).update(updates).catch(function(){});
+      }).catch(function(){});
+    } catch (e) {}
+  }
+
+  // Firebase 메시지 실시간 구독 핸들 (방 전환 시 해제용)
+  var __fbMsgSub = null;
+
+  function stopFirebaseMsgListen() {
+    try {
+      if (__fbMsgSub && __fbMsgSub.ref) {
+        __fbMsgSub.ref.off("child_added", __fbMsgSub.handler);
+        __fbMsgSub = null;
+      }
+    } catch (e) {}
+  }
+
+  function startFirebaseMsgListen(roomId) {
+    stopFirebaseMsgListen();
+    var __fbPath3 = getFirebasePath(roomId);
+    var __fbDb3 = ensureFirebase();
+    if (!__fbDb3 || !__fbPath3) return;
+
+    var subStartTs = Date.now();
+    var q = __fbDb3.ref(__fbPath3).orderByChild("ts").limitToLast(100);
+
+    // ── 1단계: once("value")로 초기 메시지 전체를 한 번에 로딩 ──
+    q.once("value").then(function (snap) {
+      if (currentRoomId !== roomId) return; // 방 바뀌면 무시
+
+      if (snap.exists()) {
+        var newMsgs = [];
+        snap.forEach(function (child) {
+          var val = child.val();
+          if (!val) return;
+          // 중복 체크
+          for (var i = 0; i < messages.length; i++) {
+            if (messages[i] && (messages[i].key === child.key)) return;
+          }
+          var msg = {
+            key:       child.key,
+            mid:       val.mid || child.key,
+            user_id:   val.user_id  || "",
+            nickname:  val.nickname || "익명",
+            text:      val.text     || "",
+            type:      val.type === "photo" ? "image" : (val.type || "text"),
+            image_url: val.url || val.image_url || "",
+            file_url:  val.url || val.file_url  || "",
+            file_name: val.fileName || val.file_name || "",
+            ts:        val.ts || Date.now(),
+            room_id:   roomId,
+            _firebase: true,
+            _isNew:    false
+          };
+          newMsgs.push(msg);
+        });
+
+        if (newMsgs.length > 0) {
+          messages = messages.concat(newMsgs);
+          messages.sort(function (a, b) { return (__smParseTs(a.ts) - __smParseTs(b.ts)); });
+          if (messages.length > MAX_BUFFER * 2) messages.splice(0, messages.length - MAX_BUFFER * 2);
+          renderAll(); // 한 번만 전체 렌더
+        }
+      }
+
+      // ── 2단계: 이후 새 메시지만 child_added로 실시간 수신 ──
+      var newMsgHandler = function (snap2) {
+        try {
+          if (currentRoomId !== roomId) return;
+          var val2 = snap2.val();
+          if (!val2) return;
+
+          // 이미 있으면 스킵
+          for (var i = 0; i < messages.length; i++) {
+            if (messages[i] && messages[i].key === snap2.key) return;
+          }
+
+          // once("value") 이후 시점의 메시지만 처리
+          if (Number(val2.ts || 0) <= subStartTs) return;
+
+          var msg2 = {
+            key:       snap2.key,
+            mid:       val2.mid || snap2.key,
+            user_id:   val2.user_id  || "",
+            nickname:  val2.nickname || "익명",
+            text:      val2.text     || "",
+            type:      val2.type === "photo" ? "image" : (val2.type || "text"),
+            image_url: val2.url || val2.image_url || "",
+            file_url:  val2.url || val2.file_url  || "",
+            file_name: val2.fileName || val2.file_name || "",
+            ts:        val2.ts || Date.now(),
+            room_id:   roomId,
+            _firebase: true,
+            _isNew:    true
+          };
+
+          // mid 기반 dedup (relay와 공유)
+          var inMid2 = val2.mid || "";
+          if (inMid2 && __hasRelay(inMid2)) return;
+          if (inMid2) __rememberRelay(inMid2);
+
+          // _local 메시지 교체 여부 확인
+          var wasLocal = false;
+          for (var di2 = messages.length - 1; di2 >= 0; di2--) {
+            var mm2 = messages[di2];
+            if (!mm2) continue;
+            if (inMid2 && mm2.mid && mm2.mid === inMid2 && (mm2._local || mm2._relay)) {
+              messages.splice(di2, 1);
+              wasLocal = true;
+              break;
+            }
+          }
+
+          messages.push(msg2);
+          messages.sort(function (a, b) { return (__smParseTs(a.ts) - __smParseTs(b.ts)); });
+          // _local 교체 시 renderAll(날짜구분선 재계산), 신규 메시지면 appendNewMessage
+          if (wasLocal) {
+            renderAll();
+          } else {
+            appendNewMessage(msg2);
+          }
+
+          // 봤음 갱신
+          try {
+            if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
+              window.SignalBus.markSeenTs(roomId, msg2.ts);
+            }
+          } catch (e0) {}
+
+          // 알림음: 다른 사람 메시지 (구독 시작 후 1.5초 이후, 내 메시지 제외)
+          try {
+            if (msg2.user_id && String(msg2.user_id) !== String(myId || "") &&
+                (Date.now() - subStartTs) > 1500) {
+              if (NotifySetting && NotifySetting.isEnabled && NotifySetting.isEnabled()) {
+                NotifySound.playDdiring();
+                if (NotifySetting.maybeShow) NotifySetting.maybeShow(msg2);
+              }
+            }
+          } catch (eSound) {}
+
+          // 배지: 내가 현재 보고 있는 방이 아닐 때
+          var msgRoomId = String(msg2.room_id || roomId || "");
+          var isMyCurrentRoom = (msgRoomId === String(currentRoomId || ""));
+          if (!isMyCurrentRoom) {
+            // 방 목록 빨간 점
+            try {
+              if (window.RoomUnreadBadge && typeof window.RoomUnreadBadge.mark === "function") {
+                window.RoomUnreadBadge.mark(msgRoomId, msg2.ts);
+              }
+            } catch (eBadge) {}
+            // 앱 아이콘 숫자 배지 (항상 - 앱 열려있어도 다른 방이면 표시)
+            try {
+              if (window.PwaManager) window.PwaManager.incrementUnread(msgRoomId);
+            } catch (ePwaBadge) {}
+          }
+        } catch (e) {}
+      };
+
+      // child_added는 startAfter 없이 쓰면 기존 데이터도 발화하므로
+      // ts > subStartTs 조건으로 새 메시지만 처리
+      var liveQ = __fbDb3.ref(__fbPath3).orderByChild("ts").startAt(subStartTs + 1);
+      liveQ.on("child_added", newMsgHandler);
+      __fbMsgSub = { ref: liveQ, handler: newMsgHandler };
+
+      // 30일 청소
+      setTimeout(function () { __pruneOldFirebaseMessages(roomId); }, 3000);
+
+    }).catch(function (e) {
+      console.warn("[Firebase] 초기 로딩 실패:", e.message || e);
+    });
   }
 
   function stopListen() {
@@ -520,6 +718,8 @@ var NotifySetting = (function () {
         window.RoomMessageStream.stop();
       }
     } catch (e0) {}
+
+    stopFirebaseMsgListen();
 
     // 혹시 남아있는 ref 리스너까지 정리(안전망)
     try {
@@ -598,283 +798,6 @@ var NotifySetting = (function () {
     return false;
   }
 
-  var __bridgeReqSeq = 0;
-  var __bridgePending = {};
-
-  function setupParentCoreBridge() {
-    if (setupParentCoreBridge._bound) return;
-    setupParentCoreBridge._bound = true;
-    window.addEventListener("message", function (ev) {
-      var data = ev && ev.data;
-      if (!data || data.type !== "WG_CORE_BRIDGE_RESPONSE") return;
-      var requestId = data.requestId || "";
-      var pending = __bridgePending[requestId];
-      if (!pending) return;
-      delete __bridgePending[requestId];
-      clearTimeout(pending.timer);
-      if (data.ok) pending.resolve(data.result);
-      else pending.reject(new Error(data.error || "bridge error"));
-    });
-  }
-
-  function callParentCoreBridge(method, args, timeoutMs) {
-    setupParentCoreBridge();
-    return new Promise(function (resolve, reject) {
-      try {
-        if (!window.parent || window.parent === window || typeof window.parent.postMessage !== "function") {
-          reject(new Error("parent bridge unavailable"));
-          return;
-        }
-        var requestId = "wgreq_" + Date.now() + "_" + (++__bridgeReqSeq);
-        var timer = setTimeout(function () {
-          delete __bridgePending[requestId];
-          reject(new Error("bridge timeout"));
-        }, Math.max(250, timeoutMs || 1200));
-        __bridgePending[requestId] = { resolve: resolve, reject: reject, timer: timer };
-        window.parent.postMessage({
-          type: "WG_CORE_BRIDGE_REQUEST",
-          requestId: requestId,
-          method: String(method || ""),
-          args: Array.isArray(args) ? args : []
-        }, "*");
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  function getCharacterName() {
-    function normalizeName(v) {
-      var s = String(v || "").trim();
-      if (!s) return "";
-      if (s === "mina") return "미나";
-      if (s === "minsu") return "민수";
-      return s;
-    }
-    try {
-      if (window.parent && window.parent.GhostCoreBridge && typeof window.parent.GhostCoreBridge.getCurrentCharacterName === "function") {
-        var viaBridge = normalizeName(window.parent.GhostCoreBridge.getCurrentCharacterName());
-        if (viaBridge) return viaBridge;
-      }
-    } catch (e) {}
-    try {
-      if (window.parent && window.parent.currentCharacterName) {
-        var parentName = normalizeName(window.parent.currentCharacterName);
-        if (parentName) return parentName;
-      }
-    } catch (e1) {}
-    try {
-      if (window.currentCharacterName) {
-        var ownName = normalizeName(window.currentCharacterName);
-        if (ownName) return ownName;
-      }
-    } catch (e2) {}
-    try {
-      var savedKey = localStorage.getItem("ghostCurrentCharacter");
-      if (savedKey === "mina") return "미나";
-      if (savedKey === "minsu") return "민수";
-      var savedName = localStorage.getItem("ghostCurrentCharacterName");
-      if (savedName) return normalizeName(savedName);
-    } catch (e3) {}
-    return "미나";
-  }
-
-  async function maybeGetLearnPattern(text) {
-    try {
-      return await callParentCoreBridge("parseLearnPatternFromText", [text], 900);
-    } catch (e) {}
-    try {
-      if (window.parent && window.parent.GhostCoreBridge && typeof window.parent.GhostCoreBridge.parseLearnPatternFromText === "function") {
-        return window.parent.GhostCoreBridge.parseLearnPatternFromText(text);
-      }
-    } catch (e2) {}
-    return null;
-  }
-
-  async function saveLearnPattern(entry) {
-    if (!entry) return false;
-    try {
-      await callParentCoreBridge("saveLearnedReaction", [entry.trigger, entry.message, entry.motion || ""], 900);
-      return true;
-    } catch (e) {}
-    try {
-      if (window.parent && window.parent.GhostCoreBridge && typeof window.parent.GhostCoreBridge.saveLearnedReaction === "function") {
-        window.parent.GhostCoreBridge.saveLearnedReaction(entry.trigger, entry.message, entry.motion || "");
-        return true;
-      }
-    } catch (e2) {}
-    return false;
-  }
-
-  async function extractCharacterCallPayload(text) {
-    var raw = String(text || "").trim();
-    var name = String(getCharacterName() || "").trim();
-    if (!raw || !name) return null;
-
-    try {
-      var bridgedAsync = await callParentCoreBridge("extractCharacterCallText", [raw], 900);
-      if (bridgedAsync != null) {
-        var cleanBridged = String(bridgedAsync || "").trim();
-        return cleanBridged || "__CALL_ONLY__";
-      }
-    } catch (e) {}
-
-    try {
-      if (window.parent && window.parent.GhostCoreBridge && typeof window.parent.GhostCoreBridge.extractCharacterCallText === "function") {
-        var bridged = window.parent.GhostCoreBridge.extractCharacterCallText(raw);
-        if (bridged != null) {
-          var clean = String(bridged || "").trim();
-          return clean || "__CALL_ONLY__";
-        }
-      }
-    } catch (e2) {}
-
-    function escapeRegExp(v) {
-      return String(v || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    }
-
-    var esc = escapeRegExp(name);
-    var patterns = [
-      new RegExp("^" + esc + "(?:야|아|님)?(?:[\\s,!！?.~…:]*)$", "i"),
-      new RegExp("^" + esc + "(?:야|아|님)?(?:[\\s,!！?.~…:]*)?(.*)$", "i")
-    ];
-
-    for (var i = 0; i < patterns.length; i++) {
-      var m = raw.match(patterns[i]);
-      if (!m) continue;
-      var rest = String(m[1] || "").trim();
-      return rest || "__CALL_ONLY__";
-    }
-    return null;
-  }
-
-  async function getCharacterReplyPayload(text, originalText) {
-    try {
-      var bridgedAsync = await callParentCoreBridge("getUnifiedCharacterChatResponse", [String(originalText || text || "").trim(), { allowCharacterCall: true }], 2200);
-      if (bridgedAsync && bridgedAsync.line) return bridgedAsync;
-    } catch (e) {}
-    try {
-      if (window.parent && window.parent.GhostCoreBridge) {
-        if (typeof window.parent.GhostCoreBridge.getUnifiedCharacterChatResponse === "function") {
-          return await window.parent.GhostCoreBridge.getUnifiedCharacterChatResponse(String(originalText || text || "").trim(), { allowCharacterCall: true });
-        }
-        if (typeof window.parent.GhostCoreBridge.getCharacterChatResponse === "function") {
-          return await window.parent.GhostCoreBridge.getCharacterChatResponse(text);
-        }
-      }
-    } catch (e2) {}
-    var raw = String(text || "").trim();
-    if (!raw) return null;
-    if (raw === "__CALL_ONLY__") {
-      return { emotion: "기쁨", line: "응, 듣고 있어. 하고 싶은 말을 이어서 해줘!" };
-    }
-    return { emotion: "경청", line: "응, 듣고 있어. 조금만 더 자세히 말해줄래?" };
-  }
-
-  function sendCharacterMessage(text, opts) {
-    var clean = String(text || "").trim();
-    if (!clean || !currentRoomId) return false;
-    var now = Date.now();
-    var name = (opts && opts.nickname) ? String(opts.nickname).trim() : getCharacterName();
-    var charId = (opts && opts.user_id) ? String(opts.user_id) : ("ghostbot:" + name);
-    var mid = "g_" + now + "_" + Math.random().toString(16).slice(2);
-    var localKey = "local_ghost_" + mid;
-    try {
-      messages.push({
-        key: localKey,
-        mid: mid,
-        user_id: charId,
-        nickname: name,
-        text: clean,
-        type: "text",
-        ts: now,
-        room_id: currentRoomId || "",
-        ghost_message: "1"
-      });
-      if (messages.length > MAX_BUFFER) {
-        messages.splice(0, messages.length - MAX_BUFFER);
-      }
-      renderAll();
-    } catch (eLocal) {}
-    try {
-      __rememberRelay(mid);
-      if (window.SignalBus && typeof window.SignalBus.push === "function") {
-        window.SignalBus.push(currentRoomId || "", {
-          kind: "chat",
-          mid: mid,
-          room_id: currentRoomId || "",
-          user_id: charId,
-          nickname: name,
-          text: clean,
-          ts: now,
-          ghost_message: "1"
-        });
-      }
-    } catch (e0) {}
-    try {
-      if (typeof window.postToSheet !== "function") throw new Error("postToSheet missing");
-      window.postToSheet({
-        mode: "social_chat_room",
-        room_id: currentRoomId || "",
-        mid: mid,
-        user_id: charId,
-        nickname: name,
-        message: clean,
-        text: clean,
-        ts: now,
-        ghost_message: "1"
-      }).then(function () {
-        scheduleRoomRefresh(currentRoomId || "");
-      }).catch(function(err){
-        console.warn("[messenger] 캐릭터 메시지 전송 실패:", err);
-      });
-      return true;
-    } catch (e) {
-      console.warn("[messenger] 캐릭터 메시지 전송 예외:", e);
-      return false;
-    }
-  }
-
-  function maybeSendRandomEmojiReply() {
-    if (!currentRoomId) return;
-    if (Math.random() > 0.01) return;
-    var code = 1 + Math.floor(Math.random() * 12);
-    setTimeout(function(){
-      sendCharacterMessage(":e" + code + ":");
-    }, 260 + Math.floor(Math.random() * 700));
-  }
-
-  async function maybeHandleGhostFollowups(originalText) {
-    var raw = String(originalText || "").trim();
-    if (!raw) return;
-
-    var learn = await maybeGetLearnPattern(raw);
-    if (learn) {
-      await saveLearnPattern(learn);
-      setTimeout(function(){
-        sendCharacterMessage('좋아! "' + learn.trigger + '"라고 하면 "' + learn.message + '"라고 반응할게.');
-      }, 180);
-      return;
-    }
-
-    var payload = await extractCharacterCallPayload(raw);
-    if (!payload) return;
-
-    try {
-      console.log('[messenger] character call:', { name: getCharacterName(), raw: raw, payload: payload });
-    } catch (eLog) {}
-
-    var reply = await getCharacterReplyPayload(payload, raw);
-    if (!reply || !reply.line) {
-      reply = (payload === '__CALL_ONLY__')
-        ? { emotion: '기쁨', line: '응! 부르면 바로 갈게. 하고 싶은 말을 이어서 해줘!' }
-        : { emotion: '경청', line: '응, 보고 있어. 조금만 더 자세히 말해줘!' };
-    }
-    setTimeout(function(){
-      sendCharacterMessage(reply.line, { emotion: reply.emotion || '' });
-    }, 220);
-  }
-
   function showStatus(text) {
     if (!statusEl) return;
     statusEl.textContent = text;
@@ -911,38 +834,13 @@ var NotifySetting = (function () {
     bodyEl.appendChild(wrap);
   }
 
-
-
-  function renderDiceRichText(text, container) {
-    if (!container || !text) return false;
-    var m = String(text).match(/^(([⚀⚁⚂⚃⚄⚅]\s*){1,4})(.*)$/);
-    if (!m) return false;
-    container.innerHTML = "";
-    container.classList.add("dice-response");
-    var wrap = document.createElement("span");
-    wrap.className = "dice-icons-wrap";
-    var icons = String(m[1] || "").match(/[⚀⚁⚂⚃⚄⚅]/g) || [];
-    icons.forEach(function(face){
-      var icon = document.createElement("span");
-      icon.className = "dice-icon-large";
-      icon.textContent = face;
-      wrap.appendChild(icon);
-    });
-    container.appendChild(wrap);
-    var tail = String(m[3] || "").trim();
-    if (tail) {
-      var rest = document.createElement("span");
-      rest.className = "dice-text-rest";
-      rest.textContent = tail;
-      container.appendChild(rest);
-    }
-    return true;
-  }
-
   function appendMessage(msg) {
     if (!bodyEl) return;
     var wrapper = document.createElement("div");
-    var isMe = msg.user_id && myId && msg.user_id === myId;
+    // user_id 있으면 우선 비교, 없으면 nickname으로 fallback
+    var isMe = myId && msg.user_id
+      ? (msg.user_id === myId)
+      : (msg.nickname && myNickname && msg.nickname === myNickname);
     wrapper.className = "msg-row " + (isMe ? "me" : "other");
 
     var bubble = document.createElement("div");
@@ -1026,16 +924,14 @@ var NotifySetting = (function () {
       } else {
       var emojiOnly = isEmojiOnlyText(text);
       if (emojiOnly) bubble.classList.add("emoji-only");
-      if (!renderDiceRichText(text, bubble)) {
-        if (typeof window.renderTextWithEmojis === "function") {
-          try {
-            window.renderTextWithEmojis(text, bubble);
-          } catch (e) {
-            bubble.textContent = text;
-          }
-        } else {
+      if (typeof window.renderTextWithEmojis === "function") {
+        try {
+          window.renderTextWithEmojis(text, bubble);
+        } catch (e) {
           bubble.textContent = text;
         }
+      } else {
+        bubble.textContent = text;
       }
       }
       }
@@ -1051,43 +947,86 @@ var NotifySetting = (function () {
     }
 
 
-    var meta = document.createElement("div");
-    meta.className = "msg-meta";
-
-    // 내 메시지는 닉네임을 숨김
-    if (!isMe) {
-      var nameSpan = document.createElement("span");
-      nameSpan.className = "msg-name";
-      nameSpan.textContent = (msg.nickname || "익명") + " ";
-      meta.appendChild(nameSpan);
-    }
-
-    var timeSpan = document.createElement("span");
-    timeSpan.className = "msg-time";
-    if (msg.ts) {
-      var d = new Date(msg.ts);
-      var hh = d.getHours().toString().padStart(2, "0");
-      var mm = d.getMinutes().toString().padStart(2, "0");
-      timeSpan.textContent = hh + ":" + mm;
-    }
-    meta.appendChild(timeSpan);
-
+    // ── 카톡 스타일 조립 ──────────────────────────────────────
+    //
+    //  [other]  [아바타] [이름]
+    //           [버블] [시간]
+    //
+    //  [me]              [시간] [버블]
+    //
     var inner = document.createElement("div");
     inner.className = "msg-inner";
 
-    // 내 메시지는 시간표시를 말풍선 반대쪽(좌측)으로
-    if (isMe) {
-      inner.appendChild(meta);
-      inner.appendChild(bubble);
-    } else {
-      inner.appendChild(bubble);
-      inner.appendChild(meta);
+    if (!isMe) {
+      // 아바타
+      var avatarWrap = document.createElement("div");
+      avatarWrap.style.cssText = "flex:0 0 auto;width:36px;margin-right:6px;align-self:flex-start;";
+      var avatarImg = document.createElement("img");
+      avatarImg.className = "msg-avatar";
+      avatarImg.setAttribute("data-profile-nick", msg.nickname || "익명");
+      avatarImg.alt = msg.nickname || "익명";
+      avatarImg.style.cssText = "width:36px;height:36px;border-radius:50%;object-fit:cover;background:#e0e7ff;display:block;";
+      // 프로필 이미지: ProfileManager 캐시 우선, 없으면 기본 아바타
+      avatarImg.src = (window.ProfileManager && window.ProfileManager.getAvatarUrl)
+        ? window.ProfileManager.getAvatarUrl(msg.nickname || "")
+        : "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#c7d2fe"/><circle cx="20" cy="15" r="7" fill="#818cf8"/><ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
+      avatarImg.onerror = function () {
+        this.onerror = null;
+        this.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#c7d2fe"/><circle cx="20" cy="15" r="7" fill="#818cf8"/><ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
+      };
+      // 클릭 시 프로필 이미지 확대 보기
+      avatarImg.style.cursor = "pointer";
+      avatarImg.addEventListener("click", function () {
+        showProfileZoom(msg.nickname || "익명", this.src);
+      });
+      // 백그라운드 Drive 캐시
+      if (window.ProfileManager && window.ProfileManager.fetchAndCacheProfile) {
+        setTimeout(function () { window.ProfileManager.fetchAndCacheProfile(msg.nickname || ""); }, 400);
+      }
+      avatarWrap.appendChild(avatarImg);
+      inner.appendChild(avatarWrap);
     }
 
+    // 콘텐츠 래퍼 (이름 + [버블+시간])
+    var contentWrap = document.createElement("div");
+    contentWrap.style.cssText = "display:flex;flex-direction:column;gap:2px;" + (isMe ? "align-items:flex-end;" : "align-items:flex-start;");
+
+    // 상대방 이름
+    if (!isMe) {
+      var nameEl = document.createElement("div");
+      nameEl.className = "msg-sender-name";
+      nameEl.textContent = msg.nickname || "익명";
+      contentWrap.appendChild(nameEl);
+    }
+
+    // 버블 + 시간 행
+    var bubbleRow = document.createElement("div");
+    bubbleRow.style.cssText = "display:flex;align-items:flex-end;gap:4px;" + (isMe ? "flex-direction:row-reverse;" : "");
+
+    // 시간
+    var timeEl = document.createElement("div");
+    timeEl.className = "msg-meta";
+    if (msg.ts) {
+      var d = new Date(__smParseTs(msg.ts) || Date.now());
+      var hh = d.getHours();
+      var mm = d.getMinutes().toString().padStart(2, "0");
+      var ampm = hh < 12 ? "오전" : "오후";
+      hh = hh % 12 || 12;
+      timeEl.textContent = ampm + " " + hh + ":" + mm;
+    }
+
+    bubbleRow.appendChild(bubble);
+    bubbleRow.appendChild(timeEl);
+    contentWrap.appendChild(bubbleRow);
+
+    inner.appendChild(contentWrap);
     wrapper.appendChild(inner);
 
     bodyEl.appendChild(wrapper);
-    bodyEl.scrollTop = bodyEl.scrollHeight;
+
+    // 맨 아래에 가까우면 자동 스크롤
+    var isNearBottom = (bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight) < 150;
+    if (isNearBottom || isMe) bodyEl.scrollTop = bodyEl.scrollHeight;
   }
 
   // ------------------------------------------------------------
@@ -1180,8 +1119,19 @@ var NotifySetting = (function () {
     });
   }
 
+  /* ── 렌더링 최적화 ──────────────────────────────────────────
+     - 초기 로딩: 배치 처리 (100개를 한 번에 그림)
+     - 새 메시지: appendMessage만 (전체 재렌더 안 함)
+     ──────────────────────────────────────────────────────── */
+  var _renderBatchTimer = null;
+  var _lastRenderedCount = 0;
+  var _lastRenderedDateKey = null; // 마지막으로 렌더된 날짜 key 추적
+
+  /* 전체 재렌더 (방 전환 / 시트 폴백 등 전체 갱신 필요 시) */
   function renderAll() {
     if (!bodyEl) return;
+    _lastRenderedCount = 0;
+    _lastRenderedDateKey = null;
     bodyEl.innerHTML = "";
     if (!messages || messages.length === 0) {
       var empty = document.createElement("div");
@@ -1190,120 +1140,96 @@ var NotifySetting = (function () {
       bodyEl.appendChild(empty);
       return;
     }
-
+    var frag = document.createDocumentFragment();
     var lastKey = null;
+    var tempBody = { appendChild: function (el) { frag.appendChild(el); } };
     messages.forEach(function (m) {
       if (!m) return;
       var ts = m.ts || Date.now();
       var key = formatDateKey(ts);
       if (lastKey !== key) {
-        appendDateSeparator(ts);
+        var sep = document.createElement("div");
+        sep.className = "date-separator";
+        sep.setAttribute("data-date-key", key);
+        sep.innerHTML = "<span>" + formatDateLabel(ts) + "</span>";
+        frag.appendChild(sep);
         lastKey = key;
+        _lastRenderedDateKey = key;
       }
+      // appendMessage를 bodyEl 대신 frag에
+      var _orig = bodyEl;
+      bodyEl = tempBody;
       appendMessage(m);
+      bodyEl = _orig;
     });
+    bodyEl.appendChild(frag);
+    _lastRenderedCount = messages.length;
+    bodyEl.scrollTop = bodyEl.scrollHeight;
   }
 
-  async function loadRecentFromSheet(roomId) {
-  var wantedRoomId = String(roomId || currentRoomId || "").trim();
-  var seq = ++__loadSeq;
-  if (typeof window.postToSheet !== "function") return;
-  try {
-    var res = await window.postToSheet({
-      mode: "social_recent_room",
-      room_id: wantedRoomId,
-      nickname: getSafeNickname(),
-      limit: MAX_BUFFER
-    });
-    if (!res || !res.ok) return;
+  /* 새 메시지 1개 추가 (전체 재렌더 없이 append only) */
 
-    var text = await res.text();
-    var json = JSON.parse(text || "{}");
-    var rows = (json && json.messages) ? json.messages : [];
+  /* ── 프로필 이미지 확대 보기 ── */
+  function showProfileZoom(nickname, imgSrc) {
+    var existing = document.getElementById("profileZoomOverlay");
+    if (existing) existing.remove();
 
-    // 방이 바뀐 뒤/새 요청이 시작된 뒤 늦게 온 응답은 무시(대화 섞임 방지)
-    if (seq !== __loadSeq) return;
-    if (currentRoomId !== wantedRoomId) return;
+    var overlay = document.createElement("div");
+    overlay.id = "profileZoomOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,0.75);animation:fadeIn .15s ease;";
 
-    // 시트 목록 파싱
-    var sheetList = [];
-    (rows || []).forEach(function (row) {
-      if (!row) return;
-      var rawMsg = (row.text || row.chatlog || row.message || row.msg || "").toString();
-      var mid = row.mid || row.message_id || row.id || "";
-      var m = {
-        key: mid ? ("m_" + mid) : ("s_" + (row.ts || row.timestamp || row.date || Date.now()) + "_" + Math.random().toString(16).slice(2)),
-        mid: mid || "",
-        user_id: row.user_id || "",
-        nickname: row.nickname || "익명",
-        text: rawMsg,
-        ts: row.ts || row.timestamp || row.date || Date.now(),
-        room_id: wantedRoomId,
-        _sheet: true
-      };
+    var img = document.createElement("img");
+    img.src = imgSrc;
+    img.style.cssText = "max-width:min(280px,80vw);max-height:min(280px,80vw);border-radius:50%;object-fit:cover;border:3px solid rgba(255,255,255,0.3);box-shadow:0 8px 40px rgba(0,0,0,0.5);";
 
-      // 토큰 기반 타입 복원([[IMG]] / [[FILE]])
-      try {
-        if (rawMsg.indexOf("[[IMG]]") === 0) {
-          m.type = "image";
-          m.image_url = rawMsg.replace("[[IMG]]", "").trim();
-          m.text = "";
-        } else if (rawMsg.indexOf("[[FILE]]") === 0) {
-          var pf = parseFileToken(rawMsg);
-          if (pf) {
-            m.type = "file";
-            m.file_url = pf.url;
-            m.file_name = pf.name;
-            m.text = "";
-          } else {
-            m.type = "text";
-          }
-        } else {
-          m.type = "text";
-        }
-      } catch (e0) {
-        m.type = "text";
-      }
+    var nameEl = document.createElement("div");
+    nameEl.textContent = nickname;
+    nameEl.style.cssText = "color:#fff;font-size:15px;font-weight:700;margin-top:14px;text-shadow:0 1px 4px rgba(0,0,0,0.5);text-align:center;";
 
-      sheetList.push(m);
-    });
+    overlay.appendChild(img);
+    overlay.appendChild(nameEl);
 
-    // merge: 기존(릴레이 포함)을 덮어쓰지 않고 합치기 (mid 우선)
-    var __relayIdx = __smBuildRelayMidIndex(messages);
-    sheetList.forEach(function(m){ __smTryAttachMidFromRelayIndex(m, __relayIdx); });
+    // 상태메시지 영역 (비동기 로드)
+    var statusEl = document.createElement("div");
+    statusEl.style.cssText = "color:rgba(255,255,255,0.82);font-size:13px;margin-top:6px;max-width:min(260px,76vw);text-align:center;line-height:1.5;word-break:break-all;text-shadow:0 1px 3px rgba(0,0,0,0.4);min-height:18px;";
+    overlay.appendChild(statusEl);
 
-    var map = {};
-    function keyOf(m) {
-      var mid2 = (m && m.mid) ? String(m.mid) : "";
-      if (mid2) return "m:" + mid2;
-      return "k:" + String(m.user_id || "") + "|" + String(m.nickname || "") + "|" + String(m.text || "") + "|" + String(m.ts || 0);
+    overlay.addEventListener("click", function () { overlay.remove(); });
+    document.body.appendChild(overlay);
+
+    // 클릭 시에만 statusMsg 불러옴 (서버 부담 최소화)
+    if (window.ProfileManager && typeof window.ProfileManager.fetchStatusMsg === "function") {
+      window.ProfileManager.fetchStatusMsg(nickname, function (msg) {
+        if (msg && overlay.parentNode) statusEl.textContent = msg;
+      });
     }
-
-    (messages || []).forEach(function (m) {
-      if (!m) return;
-      map[keyOf(m)] = m;
-    });
-
-    sheetList.forEach(function (m) {
-      if (!m) return;
-      map[keyOf(m)] = m; // 시트가 정답 우선
-      // 디듀프 힌트
-      try { if (m.mid) __rememberRelay(m.mid); } catch (eD) {}
-    });
-
-    var merged = Object.keys(map).map(function (k) { return map[k]; });
-    merged.sort(function (a, b) { return Number(a.ts || 0) - Number(b.ts || 0); });
-
-    if (merged.length > MAX_BUFFER) {
-      merged = merged.slice(merged.length - MAX_BUFFER);
-    }
-
-    messages = merged;
-    renderAll();
-  } catch (e) {
-    console.warn("[messenger] 최근 메시지 불러오기 실패:", e);
   }
-}
+
+  function appendNewMessage(msg) {
+    if (!bodyEl || !msg) return;
+    // 빈 힌트 제거
+    var hint = bodyEl.querySelector(".empty-hint");
+    if (hint) hint.remove();
+
+    var ts = msg.ts || Date.now();
+    var key = formatDateKey(ts);
+    // JS 변수로 직접 추적 - querySelector는 :last-of-type 오작동으로 사용 안 함
+    if (_lastRenderedDateKey !== key) {
+      var sep2 = document.createElement("div");
+      sep2.className = "date-separator";
+      sep2.setAttribute("data-date-key", key);
+      sep2.innerHTML = "<span>" + formatDateLabel(ts) + "</span>";
+      bodyEl.appendChild(sep2);
+      _lastRenderedDateKey = key;
+    }
+    appendMessage(msg);
+    _lastRenderedCount++;
+  }
+
+  // loadRecentFromSheet: 제거됨
+  // 글은 Firebase에서만 로드. 시트는 백업 쓰기 전용.
+  // (Firebase가 비어있어도 시트 폴백 없음 - 데이터 정합성 보장)
+  function loadRecentFromSheet(roomId) { return; }
 
 
 
@@ -1433,187 +1359,37 @@ function __applyRelayMessage(msgInfo) {
       }
     } catch (eSeen) {}
 
+    // _local 교체 여부에 따라 renderAll or appendNewMessage
+    var relayWasLocal = false;
+    for (var ri = messages.length - 2; ri >= 0; ri--) {
+      var rm = messages[ri];
+      if (!rm) continue;
+      if (m.mid && rm.mid && rm.mid === m.mid && (rm._local)) {
+        messages.splice(ri, 1);
+        relayWasLocal = true;
+        break;
+      }
+    }
     messages.push(m);
     if (messages.length > MAX_BUFFER) messages.splice(0, messages.length - MAX_BUFFER);
-    renderAll();
+    if (relayWasLocal) {
+      renderAll();
+    } else {
+      appendNewMessage(m);
+    }
   } catch (e) {}
 }
 
 function scheduleRoomRefresh(roomId) {
-    try {
-      if (!roomId) return;
-      if (!currentRoomId) return;
-      if (String(roomId) !== String(currentRoomId)) return;
-
-      clearTimeout(__roomRefreshTimer);
-      __roomRefreshTimer = setTimeout(function () {
-        try { loadRecentFromSheet(roomId); } catch (e) {}
-      }, 200);
-    } catch (e0) {}
+    // Firebase 실시간 구독으로 대체됨 - 시트 재로딩 불필요
+    return;
   }
 
-  function startListen() {
-    var db0 = ensureFirebase();
-    if (!db0 || !ref) return;
+  // ── startListen: startFirebaseMsgListen으로 완전 통합, 더 이상 사용 안 함 ──
+  // 두 리스너가 동시에 같은 Firebase 경로를 구독해 메시지가 2개씩 렌더되는 문제 수정
+  function startListen() { return; }
 
-    // auth 보장 후 리스너 시작
-    ensureAnonAuth().then(function () {
-      var roomIdNow = currentRoomId;
-      var refNow = ref;
-
-      // 리스너 중복 방지
-      stopListen();
-      listenStartedAt = Date.now();
-
-      var onChildAdded = function (snap) {
-        // 방이 바뀐 뒤 늦게 도착한 이벤트는 무시
-        if (currentRoomId !== roomIdNow) return;
-        var arrivedAt = Date.now();
-        var val = snap.val() || {};
-        // 과거 데이터 호환:
-        // - 일부 클라이언트는 text 대신 message/chatlog/msg 키를 사용했을 수 있음
-        var msgText = (val.text || val.message || val.chatlog || val.msg || "");
-
-        var msg = {
-          key: snap.key,
-          user_id: val.user_id || "",
-          nickname: val.nickname || "익명",
-          text: msgText,
-          type: val.type || "text",
-          image_url: val.image_url || "",
-          file_url: val.file_url || "",
-          file_name: val.file_name || "",
-          file_mime: val.file_mime || "",
-          file_size: val.file_size || 0,
-          ts: val.ts || Date.now(),
-          room_id: val.room_id || roomIdNow
-        };
-
-        // text에 [[IMG]]가 있으면 보정
-        if ((!msg.type || msg.type === "text") && msg.text && msg.text.indexOf("[[IMG]]") === 0) {
-          msg.type = "image";
-          msg.image_url = msg.text.replace("[[IMG]]", "").trim();
-          msg.text = "";
-        }
-        // text에 [[FILE]]가 있으면 보정
-        if ((!msg.type || msg.type === "text") && msg.text && msg.text.indexOf("[[FILE]]") === 0) {
-          var pf2 = parseFileToken(msg.text);
-          if (pf2) {
-            msg.type = "file";
-            msg.file_url = pf2.url;
-            msg.file_name = pf2.name;
-            msg.text = "";
-          }
-        }
-
-        // 다른 방 메시지가 섞이는 것을 방지(메시지에 room_id가 들어있는 경우)
-        try {
-          if (msg.room_id && String(msg.room_id) !== String(roomIdNow)) return;
-        } catch (eRoom) {}
-
-        // 낙관적 렌더(로컬) 메시지/중복 제거
-        try {
-          for (var di = messages.length - 1; di >= 0; di--) {
-            var mm = messages[di];
-            if (!mm) continue;
-            if (mm.key && msg.key && mm.key === msg.key) return;
-            var same = (mm.ts === msg.ts) && (String(mm.user_id || "") === String(msg.user_id || "")) && (String(mm.type || "text") === String(msg.type || "text")) &&
-              (String(mm.text || "") === String(msg.text || "")) && (String(mm.image_url || "") === String(msg.image_url || "")) && (String(mm.file_url || "") === String(msg.file_url || ""));
-            if (same) {
-              if (mm._local) { messages.splice(di, 1); }
-              else { return; }
-              break;
-            }
-          }
-        } catch (eDup) {}
-
-        // 방에 들어와 있는 동안은 "봤음"으로 계속 갱신(알림 오탐 방지)
-        try {
-          if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
-            window.SignalBus.markSeenTs(roomIdNow, msg.ts);
-          }
-        } catch (e0) {}
-
-        // 내 메시지면 lastMyTs 갱신(다른 기기에서 보낸 경우 포함)
-        try {
-          if (myId && msg.user_id && String(msg.user_id) === String(myId)) {
-            if (window.SignalBus && typeof window.SignalBus.markMyTs === "function") {
-              window.SignalBus.markMyTs(roomIdNow, msg.ts);
-            }
-          }
-        } catch (e1) {}
-
-        // (기존 알림음) 내 글 직후 다른 사람이 메시지를 보내면 띠리링(현재 방 내부)
-        var prev = messages.length ? messages[messages.length - 1] : null;
-        var shouldRing = false;
-        if (myId && prev && prev.user_id === myId && msg.user_id && msg.user_id !== myId) {
-          if (arrivedAt - listenStartedAt > 1500) shouldRing = true;
-        }
-
-        messages.push(msg);
-        if (messages.length > MAX_BUFFER) {
-          messages.splice(0, messages.length - MAX_BUFFER);
-        }
-        renderAll();
-
-        if (shouldRing && NotifySetting && NotifySetting.isEnabled && NotifySetting.isEnabled()) {
-          NotifySound.playDdiring();
-          if (NotifySetting.maybeShow) NotifySetting.maybeShow(msg);
-        }
-        try { snap.ref.remove(); } catch (e) {}
-      };
-
-      // Query(limitToLast) 리스너는 같은 Query 객체에서 off 해야 함
-      // → 전용 스트림 모듈(RoomMessageStream)로 attach/stop 관리
-      if (window.RoomMessageStream && typeof window.RoomMessageStream.start === "function") {
-        window.RoomMessageStream.start(refNow, MAX_BUFFER, onChildAdded);
-      } else {
-        // fallback (권장되지 않음)
-        try { refNow.limitToLast(MAX_BUFFER).on("child_added", onChildAdded); } catch (e0) {}
-      }
-
-      showStatus("실시간 연결 완료");
-    }).catch(function () {
-      showStatus("실시간 서버 인증에 실패했어요.");
-    });
-  }
-
-  function logToSheet(text, ts) {
-    if (typeof window.postToSheet !== "function") return;
-    try {
-      var payload = {
-        mode: "social_chat_room",
-        room_id: currentRoomId || "",
-        user_id: myId || "",
-        nickname: getSafeNickname(),
-        message: text,
-        text: text,
-        ts: ts || Date.now()
-      };
-      // 구버전 서버(rooms 미지원) 대비: global이면 기존 mode도 함께 기록 시도
-      if (!currentRoomId) {
-        try {
-          window.postToSheet({
-            mode: "social_chat",
-            user_id: myId || "",
-            nickname: getSafeNickname(),
-            message: text,
-            text: text,
-            ts: ts || Date.now()
-          });
-        } catch (e0) {}
-      }
-
-      var p = window.postToSheet(payload);
-      if (p && typeof p.catch === "function") {
-        p.catch(function (e) {
-          console.warn("[messenger] 시트 기록 실패:", e);
-        });
-      }
-    } catch (e) {
-      console.warn("[messenger] logToSheet 예외:", e);
-    }
-  }
+  // logToSheet: 제거됨 (데드코드, 호출 없음)
 
     function sendTextMessage(text) {
     var clean = (text || "").trim();
@@ -1653,7 +1429,7 @@ function scheduleRoomRefresh(roomId) {
     try {
       messages.push(__localMsg);
       if (messages.length > MAX_BUFFER) messages.splice(0, messages.length - MAX_BUFFER);
-      renderAll();
+      appendNewMessage(__localMsg); // append only - 전체 재렌더 없음
       if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
         window.SignalBus.markSeenTs(currentRoomId || "", now);
       }
@@ -1678,8 +1454,33 @@ function scheduleRoomRefresh(roomId) {
       }
     } catch (eRelay) {}
 
-    // 1) 시트에 기록 (진짜 저장소)
-    // 2) 성공 시 signals 트리거(실시간 갱신/알림용, Firebase에는 메시지 저장 안함)
+    // Firebase Realtime DB 에 메시지 저장 (빠른 실시간 로딩용)
+    try {
+      var __fbPath = getFirebasePath(currentRoomId);
+      var __fbDb = ensureFirebase();
+      if (__fbDb && __fbPath) {
+        __fbDb.ref(__fbPath).push({
+          mid:      __mid,
+          user_id:  myId || "",
+          nickname: getSafeNickname(),
+          text:     clean,
+          type:     "text",
+          ts:       now,
+          room_id:  currentRoomId || ""
+        }).then(function () {
+          console.log("[Firebase] 메시지 저장 성공 →", __fbPath);
+        }).catch(function (e) {
+          console.warn("[Firebase] 메시지 저장 실패:", e.message || e);
+        });
+        __pruneOldFirebaseMessages(currentRoomId);
+      } else {
+        console.warn("[Firebase] DB 없음 - ensureFirebase() 실패");
+      }
+    } catch (eFbSave) {
+      console.warn("[Firebase] 저장 예외:", eFbSave);
+    }
+
+    // 1) 시트에 기록 (백업 저장소)
     try {
       if (typeof window.postToSheet !== "function") throw new Error("postToSheet missing");
 
@@ -1693,78 +1494,14 @@ function scheduleRoomRefresh(roomId) {
         text: clean,
         ts: now
       }).then(function (res) {
-        if (!res || !res.ok) throw new Error("sheet write failed");
-
-        // 성공 토스트(보냈어요!)는 표시하지 않음
-
-        // (선택) 시트 기반으로 1회 정렬/동기화(필요 시)
-        scheduleRoomRefresh(currentRoomId || "");
+        if (!res || !res.ok) console.warn("[messenger] 텍스트 시트 백업 응답 이상(무시)");
       }).catch(function (err) {
-        console.warn("[messenger] 시트 전송 실패:", err);
-        showStatus("전송 중 문제가 생겼어요.");
-
-        // (B안) 다른 클라이언트에 임시 중계 취소(retract)
-        try {
-          if (window.SignalBus && typeof window.SignalBus.push === "function") {
-            window.SignalBus.push(currentRoomId || "", { kind: "retract", mid: __mid, room_id: currentRoomId || "", user_id: myId || "", ts: Date.now() });
-          }
-        } catch (eR) {}
-
-        // 낙관적 렌더 롤백
-        try {
-          for (var i = messages.length - 1; i >= 0; i--) {
-            if (messages[i] && messages[i].key === __localKey) { messages.splice(i, 1); break; }
-          }
-          renderAll();
-        } catch (e0) {}
+        console.warn("[messenger] 시트 백업 실패(무시):", err);
       });
-
-      try { maybeHandleGhostFollowups(clean); } catch (eFollow) {}
-      try { maybeSendRandomEmojiReply(); } catch (eEmoji) {}
     } catch (e) {
-      console.warn("[messenger] 전송 예외:", e);
-      showStatus("전송 중 문제가 생겼어요.");
+      console.warn("[messenger] 시트 백업 예외(무시):", e);
     }
   }
-
-  function focusMessageInput(selectEnd) {
-    if (!msgInput) return false;
-    try {
-      msgInput.focus();
-      if (selectEnd && typeof msgInput.setSelectionRange === "function") {
-        var len = (msgInput.value || "").length;
-        msgInput.setSelectionRange(len, len);
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function receiveParentCommand(data) {
-    if (!data || typeof data !== "object") return false;
-    if (data.type === "WG_MESSENGER_SEND_TEXT") {
-      sendTextMessage(data.text || "");
-      return true;
-    }
-    if (data.type === "WG_MESSENGER_FOCUS_INPUT") {
-      focusMessageInput(true);
-      return true;
-    }
-    return false;
-  }
-
-  try {
-    window.addEventListener("message", function (ev) {
-      try { receiveParentCommand(ev && ev.data); } catch (e) {}
-    });
-  } catch (e) {}
-
-  window.MessengerVoiceBridge = {
-    sendText: function (text) {
-      sendTextMessage(text || "");
-    }
-  };
 
   function sendCurrentMessage() {
     if (!msgInput) return;
@@ -1851,21 +1588,6 @@ function scheduleRoomRefresh(roomId) {
 
   function attachEvents() {
     if (!sendBtn || !msgInput) return;
-
-    function shouldStealFocusFromGlobalKey(ev) {
-      if (!ev || ev.defaultPrevented) return false;
-      if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
-      var key = String(ev.key || "");
-      if (!(key === "Enter" || key === " " || key === "Spacebar")) return false;
-      var active = document.activeElement;
-      if (active === msgInput) return false;
-      if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable)) return false;
-      try {
-        if (emojiPanel && emojiPanel.classList && emojiPanel.classList.contains("open")) return false;
-      } catch (e0) {}
-      return true;
-    }
-
     sendBtn.addEventListener("click", function () {
       sendCurrentMessage();
     });
@@ -1876,11 +1598,6 @@ function scheduleRoomRefresh(roomId) {
       }
     });
 
-    document.addEventListener("keydown", function (ev) {
-      if (!shouldStealFocusFromGlobalKey(ev)) return;
-      ev.preventDefault();
-      focusMessageInput(true);
-    });
     closeBtn = document.getElementById("topCloseBtn");
     if (closeBtn) {
       closeBtn.addEventListener("click", function () {
@@ -2001,7 +1718,35 @@ onPickImage: async function () {
             }
           },
           getNotifyLabel: function () { return NotifySetting.getMenuLabel(); },
-          onToggleNotify: function () { NotifySetting.toggle(showStatus); }
+          onToggleNotify: function () { NotifySetting.toggle(showStatus); },
+          onLogout: function () {
+            // iframe 내부 → 부모(index.html)로 로그아웃 요청
+            try {
+              // 1) 같은 출처라면 부모 전역 함수 직접 호출
+              if (window.parent && typeof window.parent.logoutGhostUser === "function") {
+                window.parent.logoutGhostUser();
+              }
+              if (window.parent && typeof window.parent.openLoginPanel === "function") {
+                // 로그아웃 후 바로 로그인창 띄우기
+                window.parent.openLoginPanel();
+              }
+            } catch (e) {}
+
+            // 2) postMessage fallback (file:// 등 환경)
+            try {
+              if (window.parent && window.parent.postMessage) {
+                window.parent.postMessage({ type: "WG_LOGOUT" }, "*");
+              }
+            } catch (e2) {}
+
+            // 3) 현재 iframe 상태도 즉시 잠그기
+            try {
+              localStorage.removeItem("ghostUser");
+            } catch (e3) {}
+            myId = null;
+            myNickname = null;
+            showStatus("로그아웃 되었어요.");
+          }
         });
     }
   }
@@ -2037,7 +1782,7 @@ onPickImage: async function () {
     try {
       messages.push(__localMsg);
       if (messages.length > MAX_BUFFER) messages.splice(0, messages.length - MAX_BUFFER);
-      renderAll();
+      appendNewMessage(__localMsg);
       if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
         window.SignalBus.markSeenTs(currentRoomId || "", now);
       }
@@ -2062,6 +1807,21 @@ onPickImage: async function () {
       }
     } catch (eRelay) {}
 
+    // Firebase 이미지 메시지 저장
+    try {
+      var __fbPathImg = getFirebasePath(currentRoomId);
+      var __fbDbImg = ensureFirebase();
+      if (__fbDbImg && __fbPathImg) {
+        __fbDbImg.ref(__fbPathImg).push({
+          mid: __mid, user_id: myId || "", nickname: getSafeNickname(),
+          text: "", type: "image", url: imageUrl, image_url: imageUrl,
+          ts: now, room_id: currentRoomId || ""
+        }).catch(function (e) {
+          console.warn("[messenger] Firebase 이미지 저장 실패:", e.message || e);
+        });
+      }
+    } catch (eFbImg) {}
+
     try {
       if (typeof window.postToSheet !== "function") throw new Error("postToSheet missing");
 
@@ -2075,32 +1835,12 @@ onPickImage: async function () {
         text: token,
         ts: now
       }).then(function (res) {
-        if (!res || !res.ok) throw new Error("sheet write failed");
-
-        // 성공 토스트(사진을 보냈어요!)는 표시하지 않음
-
-        scheduleRoomRefresh(currentRoomId || "");
+        if (!res || !res.ok) console.warn("[messenger] 이미지 시트 백업 응답 이상(무시)");
       }).catch(function (err) {
-        console.warn("[messenger] 이미지 시트 전송 실패:", err);
-        showStatus("전송 중 문제가 생겼어요.");
-
-        // (B안) 다른 클라이언트에 임시 중계 취소(retract)
-        try {
-          if (window.SignalBus && typeof window.SignalBus.push === "function") {
-            window.SignalBus.push(currentRoomId || "", { kind: "retract", mid: __mid, room_id: currentRoomId || "", user_id: myId || "", ts: Date.now() });
-          }
-        } catch (eR) {}
-
-        try {
-          for (var i = messages.length - 1; i >= 0; i--) {
-            if (messages[i] && messages[i].key === __localKey) { messages.splice(i, 1); break; }
-          }
-          renderAll();
-        } catch (e0) {}
+        console.warn("[messenger] 이미지 시트 백업 실패(무시):", err);
       });
     } catch (e) {
-      console.warn("[messenger] 이미지 전송 예외:", e);
-      showStatus("전송 중 문제가 생겼어요.");
+      console.warn("[messenger] 이미지 시트 백업 예외(무시):", e);
     }
   }
 
@@ -2141,7 +1881,7 @@ onPickImage: async function () {
     try {
       messages.push(__localMsg);
       if (messages.length > MAX_BUFFER) messages.splice(0, messages.length - MAX_BUFFER);
-      renderAll();
+      appendNewMessage(__localMsg);
       if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
         window.SignalBus.markSeenTs(currentRoomId || "", now);
       }
@@ -2166,6 +1906,22 @@ onPickImage: async function () {
       }
     } catch (eRelay) {}
 
+    // Firebase 파일 메시지 저장
+    try {
+      var __fbPathFile = getFirebasePath(currentRoomId);
+      var __fbDbFile = ensureFirebase();
+      if (__fbDbFile && __fbPathFile) {
+        __fbDbFile.ref(__fbPathFile).push({
+          mid: __mid, user_id: myId || "", nickname: getSafeNickname(),
+          text: "", type: "file", url: fileUrl, file_url: fileUrl,
+          fileName: fileName || "", file_name: fileName || "",
+          ts: now, room_id: currentRoomId || ""
+        }).catch(function (e) {
+          console.warn("[messenger] Firebase 파일 저장 실패:", e.message || e);
+        });
+      }
+    } catch (eFbFile) {}
+
     try {
       if (typeof window.postToSheet !== "function") throw new Error("postToSheet missing");
 
@@ -2179,32 +1935,12 @@ onPickImage: async function () {
         text: token,
         ts: now
       }).then(function (res) {
-        if (!res || !res.ok) throw new Error("sheet write failed");
-
-        // 성공 토스트(파일을 보냈어요!)는 표시하지 않음
-
-        scheduleRoomRefresh(currentRoomId || "");
+        if (!res || !res.ok) console.warn("[messenger] 파일 시트 백업 응답 이상(무시)");
       }).catch(function (err) {
-        console.warn("[messenger] 파일 시트 전송 실패:", err);
-        showStatus("전송 중 문제가 생겼어요.");
-
-        // (B안) 다른 클라이언트에 임시 중계 취소(retract)
-        try {
-          if (window.SignalBus && typeof window.SignalBus.push === "function") {
-            window.SignalBus.push(currentRoomId || "", { kind: "retract", mid: __mid, room_id: currentRoomId || "", user_id: myId || "", ts: Date.now() });
-          }
-        } catch (eR) {}
-
-        try {
-          for (var i = messages.length - 1; i >= 0; i--) {
-            if (messages[i] && messages[i].key === __localKey) { messages.splice(i, 1); break; }
-          }
-          renderAll();
-        } catch (e0) {}
+        console.warn("[messenger] 파일 시트 백업 실패(무시):", err);
       });
     } catch (e) {
-      console.warn("[messenger] 파일 전송 예외:", e);
-      showStatus("전송 중 문제가 생겼어요.");
+      console.warn("[messenger] 파일 시트 백업 예외(무시):", e);
     }
   }
 
@@ -2215,6 +1951,7 @@ onPickImage: async function () {
     } catch (e) {}
     messages = [];
     lastKey = null;
+    _lastRenderedDateKey = null;
   }
 
   function switchRoom(roomId, meta) {
@@ -2259,8 +1996,22 @@ onPickImage: async function () {
     } catch (e2) {}
 
     clearChatView();
-    loadRecentFromSheet(currentRoomId);
-    // Firebase에는 메시지를 저장/구독하지 않고, signals만 사용합니다.
+    // Firebase에서 먼저 빠르게 로딩 (구독 시작)
+    startFirebaseMsgListen(currentRoomId);
+
+    // 방 입장 → 미확인 배지 초기화
+    try {
+      if (window.PwaManager) window.PwaManager.clearUnread(currentRoomId);
+      window.dispatchEvent(new CustomEvent("ghost:room-entered", { detail: { roomId: currentRoomId } }));
+    } catch (eBadge) {}
+
+    // 구글 시트 백업 로딩: Firebase에서 아무것도 못 받았을 때만 (3초 대기 후 판단)
+    var _roomForSheet = currentRoomId;
+    setTimeout(function () {
+      if (currentRoomId !== _roomForSheet) return; // 방이 바뀌면 스킵
+      if (messages.length > 0) return; // Firebase에서 이미 불러왔으면 스킵
+      loadRecentFromSheet(_roomForSheet); // Firebase 데이터 없을 때만 시트 폴백
+    }, 3000);
 
     // 상단 상태
     try {
@@ -2354,28 +2105,14 @@ attachEvents();
         var initialRoomId = "";
     var initialRoomName = "";
     try {
-      // ✅ 딥링크 지원: ?room=ROOM_ID 로 들어오면 해당 방으로 바로 진입
-      // roomId는 Firebase 방 키(socialChatRooms/{roomId})를 의미합니다.
-      var urlRoomId = "";
-      try {
-        var sp = new URLSearchParams(window.location.search || "");
-        urlRoomId = (sp.get("room") || "").trim();
-      } catch(e) { urlRoomId = ""; }
-
-var rid = localStorage.getItem("ghostActiveRoomId");
+      var rid = localStorage.getItem("ghostActiveRoomId");
       var rname = localStorage.getItem("ghostActiveRoomName");
       if (rid && String(rid).trim()) initialRoomId = String(rid).trim();
       if (rname && String(rname).trim()) initialRoomName = String(rname).trim();
     } catch (e1) {}
 
     // 저장된 방이 있으면 그 방으로, 없으면 기본 '전체 대화방(global)'로 접속
-    // URL room 파라미터가 있으면 localStorage 값보다 우선합니다.
-      if (urlRoomId) {
-        initialRoomId = urlRoomId;
-        initialRoomName = "";
-      }
-
-if (!initialRoomId) {
+    if (!initialRoomId) {
       initialRoomId = "global";
       if (!initialRoomName) initialRoomName = "전체 대화방";
     }
@@ -2388,6 +2125,16 @@ if (!initialRoomId) {
         window.RoomUnreadBadge.clear(initialRoomId);
       }
     } catch (eBadgeInit) {}
+
+    // 프로필 매니저: 기어버튼 삽입 + 배경 복원
+    try {
+      if (window.ProfileManager) {
+        if (typeof window.ProfileManager.applyBackground === "function") {
+          var _me = myNickname || "";
+          if (_me) window.ProfileManager.applyBackground(_me);
+        }
+      }
+    } catch (ePm) {}
   }
 
   if (document.readyState === "loading") {

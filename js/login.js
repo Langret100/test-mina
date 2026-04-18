@@ -104,6 +104,9 @@
       '    </div>',
 
       '  </div>',
+      '</div>',
+      '<div id="loginAutoOverlay" class="login-auto-overlay hidden">',
+      '  <div id="loginAutoText" class="login-auto-card">로그인 완료!</div>',
       '</div>'
     ].join("");
 
@@ -133,27 +136,6 @@
     };
   }
 
-  
-
-  function emitUserChanged() {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
-      try {
-        window.dispatchEvent(new CustomEvent("ghost:userChanged", { detail: { user: window.currentUser || null } }));
-      } catch (e) {}
-    }
-  }
-
-  function updatePlusMenuLoginLabel() {
-    var menu = document.getElementById("plusMenu");
-    if (!menu) return;
-    var btn = menu.querySelector('button[data-action="login"]');
-    if (!btn) return;
-    if (window.currentUser && window.currentUser.user_id) {
-      btn.textContent = "🔓 로그아웃";
-    } else {
-      btn.textContent = "🔑 로그인";
-    }
-  }
 
 function setStatus(msg) {
     var el = document.getElementById("loginStatus");
@@ -170,11 +152,56 @@ function setStatus(msg) {
       btn.classList.add("hidden");
     }
   }
+  // ==============================
+  // 자동 로그인 완료 안내(이미 로그인 상태에서 1회 표시 후 자동 닫힘)
+  // - 로그인창 "앞"에 오버레이로 '로그인 완료!'만 표시
+  // - 이 모드에서는 로그아웃 버튼/입력폼을 보여주지 않음
+  // ==============================
+  function showLoginAutoOverlay(msg) {
+    var panel = document.getElementById("loginPanel");
+    if (!panel) return;
+    var overlay = document.getElementById("loginAutoOverlay");
+    var textEl = document.getElementById("loginAutoText");
+    if (textEl) textEl.textContent = msg || "로그인 완료!";
+    if (overlay) overlay.classList.remove("hidden");
+    panel.classList.add("autoclose-mode");
+    // 로그아웃 버튼은 굳이 노출하지 않음(요청사항)
+    try {
+      var els = getEls();
+      if (els && els.logoutBtn) els.logoutBtn.classList.add("hidden");
+    } catch (e) {}
+  }
+
+  function hideLoginAutoOverlay() {
+    var panel = document.getElementById("loginPanel");
+    var overlay = document.getElementById("loginAutoOverlay");
+    if (overlay) overlay.classList.add("hidden");
+    if (panel) panel.classList.remove("autoclose-mode");
+  }
+
+
+
+  // ==============================
+  // 비로그인 상태에서는 로그인 패널을 닫을 수 없게
+  // - 바깥(백드롭) 클릭, X 버튼 클릭으로 닫히지 않음
+  // - 로그인/게스트 로그인 성공 시에만 닫힘
+  // ==============================
+  function canCloseLoginPanel() {
+    return !!(window.__loginConfirmed && window.currentUser && window.currentUser.user_id);
+  }
+
+  function requestCloseLoginPanel() {
+    if (!canCloseLoginPanel()) {
+      setStatus("로그인해야 계속 사용할 수 있어요.");
+      return;
+    }
+    closeLoginPanel(true);
+  }
 
   // ==============================
   // 로그인 / 회원가입 처리
   // ==============================
-  async function handleLoginSubmit(ev) {
+  function handleLoginSubmit(ev) {
     ev.preventDefault();
     if (!window.fetch || typeof postToSheet !== "function") return;
 
@@ -187,73 +214,54 @@ function setStatus(msg) {
       return;
     }
 
-    try {
-      setStatus("로그인 중이에요...");
-      var res = await postToSheet({
-        mode: "login",
-        username: username,
-        password: password
-      });
-      var json = await res.json();
-      if (!json.ok) {
-        setStatus(json.error || "로그인에 실패했어요.");
-        return;
-      }
-
-      window.currentUser = {
-        user_id: json.user_id,
-        username: username,
-        nickname: json.nickname || username
-      };
-      try {
-        localStorage.setItem("ghostUser", JSON.stringify(window.currentUser));
-      } catch (e) {}
-
-      
-
-// [옵션 기능] 출석 도장 모듈(첫 로그인 자동 도장) 연동 시작
-// js/attendance-stamp.js 가 로드되어 있다면,
-// 로그인 성공 시 ghost:attendanceLogin 이벤트를 발생시켜
-// 첫 로그인일 경우 자동으로 도장을 찍어 줄 수 있습니다.
-if (typeof window !== "undefined"
-  && typeof window.dispatchEvent === "function"
-  && typeof CustomEvent === "function") {
-  try {
-    window.dispatchEvent(
-      new CustomEvent("ghost:attendanceLogin", { detail: { user: window.currentUser } })
-    );
-  } catch (e) {
-    // 무시: 출석 모듈이 없거나 CustomEvent를 지원하지 않는 환경
-  }
-}
-// [옵션 기능] 출석 도장 모듈(첫 로그인 자동 도장) 연동 끝
-
-setStatus("로그인에 성공했어요!");
-      {
-        const line = (function(name){ const lines = [name + " 왔네! 기다리고 있었어.", name + " 왔구나! 오늘도 반가워.", name + " 어서 와. 편하게 놀다 가." ]; return lines[Math.floor(Math.random() * lines.length)]; })(window.currentUser.nickname || username);
-        if (typeof setEmotion === "function") setEmotion("인사", line);
-        else if (typeof showBubble === "function") showBubble(line);
-      }
-
-      updateLogoutVisibility();
-      updatePlusMenuLoginLabel();
-      emitUserChanged();
-      setTimeout(closeLoginPanel, 800);
-      setTimeout(function () {
-        if (window.AttendanceWeekly && typeof AttendanceWeekly.handleLoginSuccess === "function") {
-          try {
-            AttendanceWeekly.handleLoginSuccess();
-          } catch (e) {}
+    setStatus("로그인 중이에요...");
+    Promise.resolve()
+      .then(function () {
+        return postToSheet({
+          mode: "login",
+          username: username,
+          password: password
+        });
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json || !json.ok) {
+          setStatus((json && json.error) || "로그인에 실패했어요.");
+          return;
         }
-      }, 700);
 
-    } catch (e) {
-      console.error("로그인 실패:", e);
-      setStatus("로그인 중 오류가 발생했어요.");
-    }
+        window.currentUser = {
+          user_id: json.user_id,
+          username: username,
+          nickname: json.nickname || username
+        };
+        try {
+          localStorage.setItem("ghostUser", JSON.stringify(window.currentUser));
+        } catch (e) {}
+        window.__loginConfirmed = true;
+
+        // 프로필 매니저 등에 알림
+        try {
+          window.dispatchEvent(new CustomEvent("ghost:login-complete", {
+            detail: { nickname: window.currentUser.nickname, user_id: window.currentUser.user_id }
+          }));
+        } catch (eEv) {}
+
+        setStatus("로그인에 성공했어요!");
+        if (typeof showBubble === "function") {
+          showBubble((window.currentUser.nickname || username) + "님, 어서 와요!");
+        }
+
+        updateLogoutVisibility();
+        setTimeout(closeLoginPanel, 800);
+      })
+      .catch(function (e) {
+        console.error("로그인 실패:", e);
+        setStatus("로그인 중 오류가 발생했어요.");
+      });
   }
 
-  async function handleSignupSubmit(ev) {
+  function handleSignupSubmit(ev) {
     ev.preventDefault();
     if (!window.fetch || typeof postToSheet !== "function") return;
 
@@ -267,52 +275,49 @@ setStatus("로그인에 성공했어요!");
       return;
     }
 
-    try {
-      setStatus("회원가입 중이에요...");
-      var res = await postToSheet({
-        mode: "signup",
-        username: username,
-        password: password,
-        nickname: nickname
-      });
-      var json = await res.json();
-      if (!json.ok) {
-        setStatus(json.error || "회원가입에 실패했어요.");
-        return;
-      }
-
-      window.currentUser = {
-        user_id: json.user_id,
-        username: username,
-        nickname: json.nickname || nickname || username
-      };
-      try {
-        localStorage.setItem("ghostUser", JSON.stringify(window.currentUser));
-      } catch (e) {}
-
-      setStatus("회원가입이 완료되었어요! 자동으로 로그인했어요.");
-      {
-        const line = (function(name){ const lines = [name + " 반가워! 이제 같이 놀자.", name + " 가입 끝났어! 이제 편하게 말 걸어줘.", name + " 왔네! 오늘부터 같이 잘 지내보자." ]; return lines[Math.floor(Math.random() * lines.length)]; })(window.currentUser.nickname || username);
-        if (typeof setEmotion === "function") setEmotion("기쁨", line);
-        else if (typeof showBubble === "function") showBubble(line);
-      }
-
-      updateLogoutVisibility();
-      updatePlusMenuLoginLabel();
-      emitUserChanged();
-      setTimeout(closeLoginPanel, 800);
-      setTimeout(function () {
-        if (window.AttendanceWeekly && typeof AttendanceWeekly.handleLoginSuccess === "function") {
-          try {
-            AttendanceWeekly.handleLoginSuccess();
-          } catch (e) {}
+    setStatus("회원가입 중이에요...");
+    Promise.resolve()
+      .then(function () {
+        return postToSheet({
+          mode: "signup",
+          username: username,
+          password: password,
+          nickname: nickname
+        });
+      })
+      .then(function (res) { return res.json(); })
+      .then(function (json) {
+        if (!json || !json.ok) {
+          setStatus((json && json.error) || "회원가입에 실패했어요.");
+          return;
         }
-      }, 700);
 
-    } catch (e) {
-      console.error("회원가입 실패:", e);
-      setStatus("회원가입 중 오류가 발생했어요.");
-    }
+        window.currentUser = {
+          user_id: json.user_id,
+          username: username,
+          nickname: json.nickname || nickname || username
+        };
+        try {
+          localStorage.setItem("ghostUser", JSON.stringify(window.currentUser));
+        } catch (e) {}
+        window.__loginConfirmed = true;
+        try {
+          window.dispatchEvent(new CustomEvent("ghost:login-complete", {
+            detail: { nickname: window.currentUser.nickname, user_id: window.currentUser.user_id }
+          }));
+        } catch (eEv) {}
+        setStatus("회원가입이 완료되었어요! 자동으로 로그인했어요.");
+        if (typeof showBubble === "function") {
+          showBubble((window.currentUser.nickname || username) + "님, 반가워요!");
+        }
+
+        updateLogoutVisibility();
+        setTimeout(closeLoginPanel, 800);
+      })
+      .catch(function (e) {
+        console.error("회원가입 실패:", e);
+        setStatus("회원가입 중 오류가 발생했어요.");
+      });
   }
 
   function doLogout() {
@@ -320,15 +325,12 @@ setStatus("로그인에 성공했어요!");
       localStorage.removeItem("ghostUser");
     } catch (e) {}
     window.currentUser = null;
+    window.__loginConfirmed = false;
     setStatus("로그아웃 되었어요.");
-    {
-      const line = "다음에 또 와. 기다리고 있을게!";
-      if (typeof setEmotion === "function") setEmotion("인사", line);
-      else if (typeof showBubble === "function") showBubble(line);
+    if (typeof showBubble === "function") {
+      showBubble("다음에 또 와요!");
     }
     updateLogoutVisibility();
-    updatePlusMenuLoginLabel();
-    emitUserChanged();
   }
 
   // ==============================
@@ -345,11 +347,11 @@ setStatus("로그인에 성공했어요!");
       els.formSignup._wiredSignup = true;
     }
     if (els.closeBtn && !els.closeBtn._wiredClose) {
-      els.closeBtn.addEventListener("click", closeLoginPanel);
+      els.closeBtn.addEventListener("click", requestCloseLoginPanel);
       els.closeBtn._wiredClose = true;
     }
     if (els.backdrop && !els.backdrop._wiredClose) {
-      els.backdrop.addEventListener("click", closeLoginPanel);
+      els.backdrop.addEventListener("click", requestCloseLoginPanel);
       els.backdrop._wiredClose = true;
     }
     if (els.signupToggleBtn && !els.signupToggleBtn._wiredToggle) {
@@ -376,33 +378,14 @@ setStatus("로그인에 성공했어요!");
         };
         try {
           localStorage.setItem("ghostUser", JSON.stringify(window.currentUser));
-        } catch (e) {}
+      } catch (e) {}
+      window.__loginConfirmed = true;
         setStatus("게스트로 입장했어요. 나중에 회원가입하면 더 오래 기록을 남길 수 있어요.");
-        {
-          var nick = window.currentUser.nickname;
-          var welcomes = [
-            nick + "아, 어서 와! 오늘도 반가워.",
-            nick + "아, 왔구나! 편하게 놀다 가.",
-            nick + "아, 반가워! 오늘 뭐부터 해볼까?",
-            nick + "아, 어서 와. 수다 떨고 가도 좋고, 쉬다 가도 좋아.",
-            nick + "아, 또 만났네! 편하게 말 걸어줘."
-          ];
-          var line = welcomes[Math.floor(Math.random() * welcomes.length)];
-          if (typeof setEmotion === "function") setEmotion("인사", line);
-          else if (typeof showBubble === "function") showBubble(line);
+        if (typeof showBubble === "function") {
+          showBubble(window.currentUser.nickname + "님, 가볍게 놀다 가요!");
         }
         updateLogoutVisibility();
-        updatePlusMenuLoginLabel();
-        emitUserChanged();
         setTimeout(closeLoginPanel, 600);
-      setTimeout(function () {
-        if (window.AttendanceWeekly && typeof AttendanceWeekly.handleLoginSuccess === "function") {
-          try {
-            AttendanceWeekly.handleLoginSuccess();
-          } catch (e) {}
-        }
-      }, 700);
-
       });
       els.guestLoginBtn._wiredGuest = true;
     }
@@ -420,6 +403,8 @@ setStatus("로그인에 성공했어요!");
   function openLoginPanel() {
     var panel = createLoginDomIfNeeded();
     wireEventsOnce();
+
+    try { hideLoginAutoOverlay(); } catch (e) {}
 
     panel.classList.remove("hidden");
     panel.classList.add("open");
@@ -442,14 +427,18 @@ setStatus("로그인에 성공했어요!");
     } catch (e) {}
 
     updateLogoutVisibility();
-    updatePlusMenuLoginLabel();
   }
 
-  function closeLoginPanel() {
+  function closeLoginPanel(force) {
+    // 비로그인 상태에서는 패널이 절대 닫히지 않게(로그인 성공 시에만 닫힘)
+    if (!force && !canCloseLoginPanel()) {
+      return;
+    }
     var panel = document.getElementById("loginPanel");
     if (!panel) return;
     panel.classList.remove("open");
     panel.classList.add("hidden");
+    try { hideLoginAutoOverlay(); } catch (e) {}
     hideLoginLogo();
     if (window.showFullscreenButton) {
       try { window.showFullscreenButton(); } catch (e) {}
@@ -460,14 +449,38 @@ setStatus("로그인에 성공했어요!");
     createLoginDomIfNeeded();
     wireEventsOnce();
     updateLogoutVisibility();
-    updatePlusMenuLoginLabel();
 
-    // 첫 접속 시 로그인 패널을 맨 앞에 띄워 주기
-    // - 이미 로그인되어 있는(currentUser가 존재하는) 경우에는 자동으로 열지 않습니다.
-    // - currentUser가 없으면 반투명 검은 배경(login-backdrop)과 함께 로그인창을 표시합니다.
-    if (!window.currentUser || !window.currentUser.user_id) {
+    // 저장된 사용자 정보가 있으면 먼저 복원(로딩 순서 이슈로 비로그인인데 닫히는 현상 방지)
+    if ((!window.currentUser || !window.currentUser.user_id) && typeof localStorage !== "undefined") {
+      try {
+        var _raw = localStorage.getItem("ghostUser");
+        if (_raw) {
+          var _obj = JSON.parse(_raw);
+          if (_obj && _obj.user_id) {
+            window.currentUser = _obj;
+            window.__loginConfirmed = true;
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 첫 접속 시 로그인 패널 표시 규칙
+    // - 비로그인 상태: 반드시 표시
+    // - 이미 로그인 상태라도(저장된 ghostUser 복원 등): "이번 탭에서 아직 한 번도 로그인창을 띄운 적이 없으면" 1회 표시
+    //   (계정 전환/로그인 상태 확인 목적, 닫기는 가능)
+    var _promptShown = false;
+    try { _promptShown = (sessionStorage.getItem("ghostLoginPromptShown") === "1"); } catch (e) {}
+
+    var _needPrompt = (!window.currentUser || !window.currentUser.user_id) || !_promptShown;
+    if (_needPrompt) {
       try {
         openLoginPanel();
+        // 이미 로그인 상태라면 로그인창 "앞"에 "로그인 완료!"만 표시하고 자동으로 닫기
+        if (window.currentUser && window.currentUser.user_id) {
+          try { showLoginAutoOverlay("로그인 완료!"); } catch (e) {}
+          try { setTimeout(function () { try { closeLoginPanel(); } catch (e2) {} }, 650); } catch (e) {}
+        }
+        try { sessionStorage.setItem("ghostLoginPromptShown", "1"); } catch (e) {}
       } catch (e) {}
     }
   }

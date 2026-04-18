@@ -1,47 +1,36 @@
 /* ============================================================
-   [room-panel-toggle.js] 상단바 "현재 대화방" 버튼으로 방 목록 토글
+   [room-panel-toggle.js] 대화방 목록 패널 토글
    ------------------------------------------------------------
-   - 상단바(로고 왼쪽)에 현재 보고 있는 대화방 이름을 버튼처럼 표시
-   - 버튼을 누를 때만 대화방 목록(roomPanel)이 슬라이드로 열리고,
-     닫혀 있으면 채팅창을 넓게 볼 수 있음
-   - roomTitle(#roomTitle) 변경을 감지해 버튼 라벨을 자동 동기화
-
-   [제거 시 함께 삭제/정리할 요소]
-   1) games/social-messenger.html 의 #topRoomBtn(버튼), #roomBackdrop(배경)
-   2) games/social-messenger.html 의 .messenger-topbar-roombtn / .room-backdrop /
-      .room-panel.open 관련 CSS
-   3) games/social-messenger.html 의 room-panel-toggle.js include
+   - PC/모바일 모두 오버레이 방식 (버튼 눌러야 열림)
+   - 모바일: 전체화면으로 열림
+   - PC: 300px 사이드 오버레이
+   - topbar 버튼 라벨 = 현재 방 이름
    ============================================================ */
 
 (function () {
-  var btn = null;
-  var panel = null;
+  var btn      = null;
+  var panel    = null;
   var backdrop = null;
-  var listEl = null;
-  var titleEl = null;
+  var listEl   = null;
+  var titleEl  = null;
 
   function getTitleText() {
     try {
-      var t = (titleEl && titleEl.textContent) ? String(titleEl.textContent).trim() : "";
+      var t = titleEl && titleEl.textContent ? String(titleEl.textContent).trim() : "";
       return t || "대화방";
-    } catch (e) {}
-    return "대화방";
+    } catch (e) { return "대화방"; }
   }
 
   function syncButtonLabel() {
     if (!btn) return;
-    try {
-      // textContent로 넣어야 ::after(▾)가 유지됨
-      btn.textContent = getTitleText();
-    } catch (e) {}
+    try { btn.textContent = getTitleText(); } catch (e) {}
   }
 
   function openPanel() {
-    if (panel) panel.classList.add("open");
+    if (panel)    panel.classList.add("open");
     if (backdrop) backdrop.classList.add("open");
-    if (btn) btn.setAttribute("aria-expanded", "true");
-
-    // 방 목록은 "열 때만" 서버에서 갱신
+    if (btn)      btn.setAttribute("aria-expanded", "true");
+    // 패널 열 때 방 목록 갱신
     try {
       if (window.ChatRooms && typeof window.ChatRooms.reload === "function") {
         window.ChatRooms.reload();
@@ -50,15 +39,14 @@
   }
 
   function closePanel() {
-    if (panel) panel.classList.remove("open");
+    if (panel)    panel.classList.remove("open");
     if (backdrop) backdrop.classList.remove("open");
-    if (btn) btn.setAttribute("aria-expanded", "false");
+    if (btn)      btn.setAttribute("aria-expanded", "false");
   }
 
   function togglePanel() {
     if (!panel) return;
-    if (panel.classList.contains("open")) closePanel();
-    else openPanel();
+    panel.classList.contains("open") ? closePanel() : openPanel();
   }
 
   function bindAutoCloseOnRoomPick() {
@@ -78,32 +66,28 @@
   function bindTitleObserver() {
     if (!titleEl || typeof MutationObserver === "undefined") return;
     try {
-      var obs = new MutationObserver(function () {
-        syncButtonLabel();
-      });
-      obs.observe(titleEl, { childList: true, characterData: true, subtree: true });
+      new MutationObserver(function () { syncButtonLabel(); })
+        .observe(titleEl, { childList: true, characterData: true, subtree: true });
     } catch (e) {}
   }
 
   function init() {
-    btn = document.getElementById("topRoomBtn");
-    panel = document.getElementById("roomPanel");
+    btn      = document.getElementById("topRoomBtn");
+    panel    = document.getElementById("roomPanel");
     backdrop = document.getElementById("roomBackdrop");
-    listEl = document.getElementById("roomList");
-    titleEl = document.getElementById("roomTitle");
+    listEl   = document.getElementById("roomList");
+    titleEl  = document.getElementById("roomTitle");
 
-    if (!btn || !panel || !backdrop) return;
+    if (!panel) return;
 
-    // 기본은 닫힘
-    closePanel();
+    closePanel(); // 기본 닫힘
     syncButtonLabel();
 
-    btn.addEventListener("click", togglePanel);
-    backdrop.addEventListener("click", closePanel);
+    if (btn)      btn.addEventListener("click", togglePanel);
+    if (backdrop) backdrop.addEventListener("click", closePanel);
 
     document.addEventListener("keydown", function (e) {
-      if (!e) return;
-      if (e.key === "Escape") closePanel();
+      if (e && e.key === "Escape") closePanel();
     });
 
     bindAutoCloseOnRoomPick();

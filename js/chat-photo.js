@@ -107,34 +107,41 @@
     });
   }
 
-  async function uploadToSheet(opts) {
-    // opts: { base64, mime, user_id, nickname, ts }
-    if (typeof window.fetch !== "function") throw new Error("fetch not available");
+  async function uploadToStorage(opts) {
+    // Google Drive 업로드 (Apps Script 경유)
+    // opts: { blob, mime, dataUrl, base64, user_id, nickname, ts }
     if (typeof window.SHEET_IMAGE_UPLOAD_URL === "undefined" || !window.SHEET_IMAGE_UPLOAD_URL) {
       throw new Error("SHEET_IMAGE_UPLOAD_URL not configured");
     }
+    // base64 추출
+    var base64 = opts.base64 || "";
+    if (!base64 && opts.dataUrl) {
+      base64 = opts.dataUrl.split(",").slice(1).join(",");
+    }
+    if (!base64) throw new Error("base64 empty");
+
     var body = new URLSearchParams();
     body.append("mode", "social_upload_image");
     body.append("mime", opts.mime || "image/jpeg");
-    body.append("data", opts.base64 || "");
+    body.append("data", base64);
     body.append("user_id", opts.user_id || "");
     body.append("nickname", opts.nickname || "");
     body.append("ts", String(opts.ts || Date.now()));
 
-    var res = await fetch(window.SHEET_IMAGE_UPLOAD_URL, {
-      method: "POST",
-      body: body
-    });
+    var res = await fetch(window.SHEET_IMAGE_UPLOAD_URL, { method: "POST", body: body });
     var txt = await res.text();
+    console.log("[chat-photo] 응답:", txt.slice(0, 300));
     var json = {};
-    try { json = JSON.parse(txt || "{}"); } catch (e) {}
-    if (!res.ok || !json || !json.ok) {
-      throw new Error((json && json.error) ? json.error : "upload failed");
+    try { json = JSON.parse(txt || "{}"); } catch (e) { console.warn("[chat-photo] JSON파싱실패:", txt.slice(0,200)); }
+    var url = json.url || json.image_url || json.fileUrl || json.link || json.downloadUrl || "";
+    if (!url) {
+      throw new Error((json && json.error) ? json.error : "no url in response: " + txt.slice(0, 150));
     }
-    var url = json.url || json.image_url || "";
-    if (!url) throw new Error("no url returned");
     return { url: url };
   }
+
+  // 하위 호환용 alias
+  var uploadToSheet = uploadToStorage;
 
   // 사용자 액션: 사진 선택/촬영 → 리사이즈 → 업로드
   function pickAndUpload(params) {
@@ -168,8 +175,9 @@
           var base64 = resized.dataUrl.split(",").slice(1).join(",");
           if (!base64) throw new Error("base64 empty");
 
-          var result = await uploadToSheet({
+          var result = await uploadToStorage({
             base64: base64,
+            dataUrl: resized.dataUrl,
             mime: resized.mime || "image/jpeg",
             user_id: user_id,
             nickname: nickname,
@@ -185,7 +193,35 @@
     });
   }
 
+  function doPickAndSend(captureMode) {
+    var me = "";
+    try {
+      if (window.currentUser && window.currentUser.nickname) me = window.currentUser.nickname;
+      else {
+        var raw = localStorage.getItem("ghostUser");
+        if (raw) { var u = JSON.parse(raw); if (u && u.nickname) me = u.nickname; }
+      }
+    } catch (e) {}
+
+    pickAndUpload({
+      capture: !!captureMode,
+      user_id: (window.currentUser && window.currentUser.user_id) || "",
+      nickname: me
+    }).then(function (result) {
+      // social-messenger.js 의 전송 함수로 연결
+      if (typeof window.sendChatPhoto === "function") {
+        window.sendChatPhoto(result.url, result.url);
+      }
+    }).catch(function (err) {
+      if (err && err.message !== "no file") {
+        if (typeof window.showBubble === "function") window.showBubble("사진 업로드에 실패했어요.");
+      }
+    });
+  }
+
   window.ChatPhoto = {
-    pickAndUpload: pickAndUpload
+    pickAndUpload: pickAndUpload,
+    openCamera:    function () { doPickAndSend(true);  },
+    openGallery:   function () { doPickAndSend(false); }
   };
 })();
