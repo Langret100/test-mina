@@ -489,12 +489,13 @@ body.is-game-mode #ghostContainer {
 /* 반응형 */
     @media (max-width: 768px) {
       #ghostContainer {
-        right: -148px;        /* scale(2.4) 기준 오른쪽 잘림 방지 */
+        right: 0;
         bottom: 80px;
         width: 216px;
         height: 216px;
         transform: scale(2.4);
         transform-origin: bottom right;
+        overflow: visible;
       }
       #ghost {
         width: 216px;
@@ -3229,44 +3230,46 @@ body.always-listen-center #bubbleWrapper .bubble::after {
 
 
 /* ==============================
-   모바일: + 버튼 좌상단 고정 배치 (업데이트 v9.3+)
+   모바일: + 버튼을 항상 inputRow 안 sendBtn 우측에 배치
    ============================== */
 @media (max-width: 768px) {
-  /* 일반 모드: + 버튼 좌상단 고정 */
+  /* + 버튼: fixed 해제, inputRow 내 인라인 배치 */
   .ghost-plus-wrapper {
-    position: fixed;
-    top: 14px;
-    left: 16px;
-    z-index: 50;
-  }
-  #ghostPlus {
-    opacity: 0.5;
-  }
-  #plusMenu {
-    top: 40px;
-    bottom: auto;
-    left: 0;
-    right: auto;
-  }
-
-  /* 소통(social) 모드: 이모티콘 숨기고 + 버튼 inputRow 안으로 */
-  #chatPanel.chat-panel-social .emoji-wrapper {
-    display: none !important;
-  }
-  #chatPanel.chat-panel-social .ghost-plus-wrapper {
     position: relative;
     top: auto;
     left: auto;
     z-index: auto;
+    flex-shrink: 0;
   }
-  #chatPanel.chat-panel-social #ghostPlus {
+  #ghostPlus {
     opacity: 1;
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
   }
-  #chatPanel.chat-panel-social #plusMenu {
+  /* 입력칸 폭 줄이기 — flex:1 유지하되 min-width 줄임 */
+  #userInput {
+    min-width: 0;
+    font-size: 14px;
+    padding: 8px 10px;
+  }
+  /* sendBtn 소폭 축소 */
+  #sendBtn {
+    padding: 7px 10px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  /* + 메뉴: 위쪽으로 펼쳐지도록 */
+  #plusMenu {
     top: auto;
-    bottom: 40px;
+    bottom: 44px;
     left: auto;
     right: 0;
+  }
+
+  /* 소통 모드: 이모티콘 버튼 숨김 */
+  #chatPanel.chat-panel-social .emoji-wrapper {
+    display: none !important;
   }
 }
 
@@ -3352,6 +3355,7 @@ body.always-listen-center #bubbleWrapper .bubble::after {
   #ghostContainer {
     transform: scale(2.4) translate3d(var(--plx-x), var(--plx-y), 0);
     transform-origin: bottom right;
+    overflow: visible;
   }
 }
 
