@@ -72,12 +72,6 @@
         console.warn("[social-chat] SOCIAL_CHAT_FIREBASE_CONFIG 가 설정되지 않았습니다.");
         return null;
       }
-      // GitHub Actions 배포 전 __FIREBASE_API_KEY__ 미치환 상태 감지
-      if (SOCIAL_CHAT_FIREBASE_CONFIG.apiKey === "__FIREBASE_API_KEY__") {
-        console.warn("[social-chat] Firebase API 키가 아직 설정되지 않았습니다. GitHub Pages 배포 후 사용 가능합니다.");
-        return null;
-      }
-
       if (firebase.apps && firebase.apps.length > 0) {
         firebaseApp = firebase.app();
       } else {
@@ -340,10 +334,7 @@ async function loadRecentMessagesFromSheet(force) {
     if (!db || !firebaseRef) {
       if (typeof showBubble === "function") {
         // API 키 미설정(로컬) vs 실제 연결 오류 구분
-        var isKeyUnset = SOCIAL_CHAT_FIREBASE_CONFIG && SOCIAL_CHAT_FIREBASE_CONFIG.apiKey === "__FIREBASE_API_KEY__";
-        showBubble(isKeyUnset
-          ? "소통 채팅은 GitHub Pages 배포 후 사용할 수 있어요."
-          : "소통 서버와 연결되지 않았어요. 잠시 후 다시 시도해 주세요.");
+        showBubble("소통 서버와 연결되지 않았어요. 잠시 후 다시 시도해 주세요.");
       }
       return;
     }

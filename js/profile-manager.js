@@ -522,7 +522,7 @@
     if (!topbar || document.getElementById("profileGearBtn")) return;
     var btn = document.createElement("button");
     btn.id = "profileGearBtn"; btn.type = "button"; btn.title = "프로필/배경 설정";
-    btn.style.cssText = "position:absolute;right:10px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:0;cursor:pointer;line-height:0;";
+    btn.style.cssText = "position:absolute;right:52px;top:50%;transform:translateY(-50%);border:0;background:transparent;padding:0;cursor:pointer;line-height:0;";
 
     var img = document.createElement("img");
     img.id = "profileGearImg";
