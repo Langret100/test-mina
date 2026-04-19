@@ -497,10 +497,36 @@ function setModeSocial(enabled) {
       }
 
       var inputEl = userInput || document.getElementById("userInput");
-      var text = "";
-      if (inputEl && typeof inputEl.value === "string") {
-        text = inputEl.value;
+      var text = (inputEl && inputEl.value) ? inputEl.value.trim() : "";
+      if (!text) return;
+
+      // 캐릭터 호출 감지 — 이름으로 시작하면 캐릭터가 응답
+      var isCharCall = false;
+      try {
+        if (window.GhostCoreBridge && typeof window.GhostCoreBridge.getUnifiedCharacterChatResponse === "function") {
+          var charName = (window.GhostCoreBridge.getCurrentCharacterName && window.GhostCoreBridge.getCurrentCharacterName()) || "미나";
+          var aliases = [charName, "미나", "민아", "민하", "민수", "민서", "마이파이", "마이파", "얘", "야", "저기", "있잖아", "잠깐"];
+          // 중복 제거
+          aliases = aliases.filter(function(v, i, a){ return a.indexOf(v) === i; });
+          var compact = text.replace(/\s+/g, "");
+          for (var ai = 0; ai < aliases.length; ai++) {
+            var n = aliases[ai];
+            var re = new RegExp("^" + n.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&") + "([야아요!,~ ]+)?", "i");
+            if (re.test(text) || compact === n || compact === n+"야" || compact === n+"아") {
+              isCharCall = true;
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+
+      if (isCharCall) {
+        // 캐릭터 호출: 기존 핸들러로 처리 (캐릭터 응답 + 말풍선)
+        if (inputEl) inputEl.value = text; // 값 유지 후 원본 핸들러
+        return originalHandleUserSubmit();
       }
+
+      // 일반 소통 메시지 전송
       sendSocialMessage(text);
     };
   }

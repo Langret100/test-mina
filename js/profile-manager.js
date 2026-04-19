@@ -158,7 +158,8 @@
           imgBase64: finalDataUrl,
           nickname:  nickname,
           statusMsg: statusMsg,
-          ts:        Date.now()
+          ts:        Date.now(),
+          lastSeen:  Date.now()
         };
 
         db.ref("profiles/" + safe).set(payload)
@@ -555,13 +556,49 @@
         applyBackground(nick);
         fetchAndCacheProfile(nick);
         injectGearButton();
-        // 프로필 이미지 로컬 캐시 로드 후 버튼 갱신
         setTimeout(function () { refreshGearButton(nick); }, 300);
+        // lastSeen 갱신 — 30일 미접속 프로필 정리용
+        updateLastSeen(nick);
+        // 30일 지난 미접속 프로필 정리 (로그인 시 1회)
+        setTimeout(pruneInactiveProfiles, 5000);
       } catch (e) {}
     });
   }
 
 
+
+  /* ── 접속 시각 갱신 ── */
+  function updateLastSeen(nickname) {
+    if (!nickname) return;
+    try {
+      var db = firebase.database();
+      var safe = nickname.replace(/[.#$\[\]]/g, "_");
+      db.ref("profiles/" + safe).update({ lastSeen: Date.now() });
+    } catch (e) {}
+  }
+
+  /* ── 30일 미접속 프로필 삭제 ── */
+  function pruneInactiveProfiles() {
+    try {
+      var db = firebase.database();
+      var cutoff = Date.now() - (30 * 24 * 60 * 60 * 1000);
+      db.ref("profiles").once("value").then(function (snap) {
+        if (!snap.exists()) return;
+        var updates = {};
+        snap.forEach(function (child) {
+          var v = child.val() || {};
+          // lastSeen 없으면 ts(저장 시각) 사용, 그것도 없으면 삭제 안 함
+          var lastActive = v.lastSeen || v.ts || null;
+          if (lastActive && lastActive < cutoff) {
+            updates[child.key] = null;
+          }
+        });
+        if (Object.keys(updates).length > 0) {
+          db.ref("profiles").update(updates).catch(function(){});
+        }
+      }).catch(function(){});
+    } catch (e) {}
+  }
 
   function saveStatusMsg(nickname, statusMsg) {
     return new Promise(function (resolve, reject) {
