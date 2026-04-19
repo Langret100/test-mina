@@ -489,7 +489,7 @@ body.is-game-mode #ghostContainer {
 /* 반응형 */
     @media (max-width: 768px) {
       #ghostContainer {
-        right: 0;
+        right: -130px;
         bottom: 80px;
         width: 216px;
         height: 216px;
@@ -502,8 +502,8 @@ body.is-game-mode #ghostContainer {
         height: 216px;
       }
       #bubbleWrapper {
-        right: 190px; /* 모바일: 말풍선을 캐릭터 쪽으로 조금 더 이동 */
-        bottom: 430px; /* 모바일: 전체 레이아웃과 함께 조금 아래로 내림 */
+        right: 210px; /* scale(2.4) 기준 캐릭터 왼쪽에 말풍선 위치 */
+        bottom: 480px; /* scale(2.4) 기준 캐릭터 머리 위 */
       }
       #chatDock {
         width: 98vw;
