@@ -495,29 +495,36 @@
       });
     }
 
-    /* 알림 통합 버튼 — 앱 내 소리 알림(NotifySetting) + FCM 푸시 알림(FcmPush) 한번에 */
+    /* 알림 통합 버튼 — localStorage 직접 제어 (NotifySetting은 iframe 안이라 접근 불가) */
     var notifyBtn = document.getElementById("pmNotifyBtn");
     if (notifyBtn) {
+      var NOTIFY_KEY = "mypai_notify_enabled";
+
+      function isNotifyOn() {
+        try { return localStorage.getItem(NOTIFY_KEY) !== "0"; } catch(e) { return true; }
+      }
+      function setNotifyOn(v) {
+        try { localStorage.setItem(NOTIFY_KEY, v ? "1" : "0"); } catch(e) {}
+      }
+
       function refreshNotifyBtn() {
         if (!("Notification" in window)) {
           notifyBtn.textContent = "🔕 알림 미지원 브라우저";
           notifyBtn.disabled = true; notifyBtn.style.opacity = "0.5"; return;
         }
         var perm = Notification.permission;
-        var soundOn = (typeof window.NotifySetting !== "undefined" && window.NotifySetting.isEnabled)
-                      ? window.NotifySetting.isEnabled() : false;
-
+        var on = isNotifyOn();
         notifyBtn.disabled = false; notifyBtn.style.opacity = "1";
 
         if (perm === "denied") {
           notifyBtn.textContent = "🔕 알림 차단됨 — 브라우저 설정에서 허용";
           notifyBtn.disabled = true; notifyBtn.style.opacity = "0.6";
-        } else if (perm === "granted" && soundOn) {
+        } else if (perm === "granted" && on) {
           notifyBtn.textContent = "🔔 알림 켜짐 (탭하면 끄기)";
           notifyBtn.style.background = "#f0fdf4";
           notifyBtn.style.borderColor = "#16a34a";
           notifyBtn.style.color = "#16a34a";
-        } else if (perm === "granted" && !soundOn) {
+        } else if (perm === "granted" && !on) {
           notifyBtn.textContent = "🔕 알림 꺼짐 (탭하면 켜기)";
           notifyBtn.style.background = "#f1f5f9";
           notifyBtn.style.borderColor = "#94a3b8";
@@ -534,29 +541,21 @@
       notifyBtn.addEventListener("click", function () {
         var perm = ("Notification" in window) ? Notification.permission : "unsupported";
 
-        // 이미 허용됨 → 켜짐/꺼짐 토글
         if (perm === "granted") {
-          if (typeof window.NotifySetting !== "undefined" && window.NotifySetting.toggle) {
-            window.NotifySetting.toggle();
-          }
-          // FCM도 같이 토글
-          var soundOn = (typeof window.NotifySetting !== "undefined" && window.NotifySetting.isEnabled) ? window.NotifySetting.isEnabled() : false;
-          if (soundOn && window.FcmPush && typeof window.FcmPush.init === "function") {
+          // 켜짐/꺼짐 토글
+          var next = !isNotifyOn();
+          setNotifyOn(next);
+          if (next && window.FcmPush && typeof window.FcmPush.init === "function") {
             window.FcmPush.init();
           }
           refreshNotifyBtn();
           return;
         }
 
-        // 권한 미결정 → 요청
         if (perm === "default") {
           Notification.requestPermission().then(function (result) {
             if (result === "granted") {
-              // 앱 내 소리 알림 ON
-              if (typeof window.NotifySetting !== "undefined" && window.NotifySetting.toggle && !window.NotifySetting.isEnabled()) {
-                window.NotifySetting.toggle();
-              }
-              // FCM 푸시 토큰 발급
+              setNotifyOn(true);
               if (window.FcmPush && typeof window.FcmPush.init === "function") {
                 window.FcmPush.init();
               }

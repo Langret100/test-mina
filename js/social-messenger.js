@@ -428,6 +428,7 @@ var NotifySetting = (function () {
     maybeShow: maybeShow
   };
 })();
+window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근용
 
 
 ;
