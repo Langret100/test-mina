@@ -19,7 +19,7 @@
   const SOUND_MAX = 10.0;
 
   let rateValue = 1.0;
-  let toneValue = 1.0;
+  let toneValue = 4.5;
 
   function loadInitialState(){
     if (!hasSpeech) {

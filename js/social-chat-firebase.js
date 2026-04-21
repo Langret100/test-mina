@@ -428,6 +428,13 @@ async function loadRecentMessagesFromSheet(force) {
     // 시트 기록은 별도로, 실패하더라도 채팅에는 영향 없게
     logSocialToSheet(trimmed, now);
 
+    // FCM 푸시 알림 (앱 꺼져도 알림)
+    try {
+      if (typeof window.__sendFcmPushNotify === "function") {
+        window.__sendFcmPushNotify("global", getSafeNickname(), trimmed);
+      }
+    } catch (eFcm) {}
+
     if (userInput) {
       userInput.value = "";
     }
