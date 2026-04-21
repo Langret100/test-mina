@@ -136,10 +136,6 @@ menu.appendChild(makeItem("🔎 QR 링크 스캔", function () { menu._fire && m
 menu.appendChild(makeItem("🖼️ 이미지 첨부", function () { menu._fire && menu._fire("pickImage"); }));
 menu.appendChild(makeItem("📎 파일 첨부", function () { menu._fire && menu._fire("pickFile"); }));
 
-// 알림 설정(켜짐/꺼짐 표시)
-var notifyBtn = makeItem("", function () { menu._fire && menu._fire("toggleNotify"); });
-menu._notifyBtn = notifyBtn;
-menu.appendChild(notifyBtn);
 
     // 로그아웃(요청: + 메뉴에 추가)
     menu.appendChild(makeItem("🚪 로그아웃", function () { menu._fire && menu._fire("logout"); }));

@@ -279,6 +279,8 @@
       "<input id='pmBgInput' type='file' accept='image/*' style='display:none'></div>",
       "<button id='pmSave' type='button' style='border:0;background:#2563eb;color:#fff;border-radius:12px;height:40px;font-size:14px;font-weight:800;cursor:pointer;'>저장</button>",
       "<div id='pmStatus' style='font-size:12px;color:#6b7280;text-align:center;min-height:16px;'></div>",
+      /* 알림 통합 버튼 (앱 내 소리 + FCM 푸시 알림 한번에) */
+      "<button id='pmNotifyBtn' type='button' style='width:100%;border:1px solid #f59e0b;background:#fffbeb;color:#b45309;border-radius:12px;height:38px;font-size:13px;font-weight:700;cursor:pointer;margin-bottom:6px;'>🔔 알림 허용</button>",
       /* 하단 버튼 행: 웹앱 추가 + 로그아웃 */
       "<div style='display:flex;gap:8px;'>",
       "  <button id='pwaInstallBtn' type='button' style='flex:1;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;border-radius:12px;height:38px;font-size:13px;font-weight:700;cursor:pointer;'>📱 바탕화면에 추가</button>",
@@ -489,6 +491,70 @@
             refreshPwaBtn(); // 거절 시 원래 상태로
           }
           // ios_guide / guide_shown 은 PwaManager 내부 팝업이 뜸
+        });
+      });
+    }
+
+    /* 알림 통합 버튼 — 앱 내 소리 알림(NotifySetting) + FCM 푸시 알림(FcmPush) 한번에 */
+    var notifyBtn = document.getElementById("pmNotifyBtn");
+    if (notifyBtn) {
+      function refreshNotifyBtn() {
+        if (!("Notification" in window)) {
+          notifyBtn.textContent = "🔕 알림 미지원 브라우저";
+          notifyBtn.disabled = true;
+          notifyBtn.style.opacity = "0.5";
+          return;
+        }
+        var perm = Notification.permission;
+        // NotifySetting 켜짐 여부
+        var soundOn = (typeof NotifySetting !== "undefined" && NotifySetting.isEnabled) ? NotifySetting.isEnabled() : false;
+        if (perm === "granted" && soundOn) {
+          notifyBtn.textContent = "✅ 알림 켜짐";
+          notifyBtn.style.background = "#f0fdf4";
+          notifyBtn.style.borderColor = "#16a34a";
+          notifyBtn.style.color = "#16a34a";
+          notifyBtn.disabled = false; // 다시 끌 수 있게
+        } else if (perm === "denied") {
+          notifyBtn.textContent = "🔕 알림 차단됨 — 브라우저 설정에서 허용";
+          notifyBtn.disabled = true;
+          notifyBtn.style.opacity = "0.6";
+        } else {
+          notifyBtn.textContent = "🔔 알림 허용";
+          notifyBtn.disabled = false;
+          notifyBtn.style.opacity = "1";
+          notifyBtn.style.background = "#fffbeb";
+          notifyBtn.style.borderColor = "#f59e0b";
+          notifyBtn.style.color = "#b45309";
+        }
+      }
+      refreshNotifyBtn();
+
+      notifyBtn.addEventListener("click", function () {
+        var perm = Notification.permission;
+        var soundOn = (typeof NotifySetting !== "undefined" && NotifySetting.isEnabled) ? NotifySetting.isEnabled() : false;
+
+        // 이미 허용+켜짐이면 → 끄기
+        if (perm === "granted" && soundOn) {
+          if (typeof NotifySetting !== "undefined" && NotifySetting.toggle) {
+            NotifySetting.toggle();
+          }
+          refreshNotifyBtn();
+          return;
+        }
+
+        // 권한 요청 후 NotifySetting 켜기 + FCM 토큰 발급
+        Notification.requestPermission().then(function (result) {
+          if (result === "granted") {
+            // 1) 앱 내 소리 알림 ON
+            if (typeof NotifySetting !== "undefined" && NotifySetting.toggle && !NotifySetting.isEnabled()) {
+              NotifySetting.toggle();
+            }
+            // 2) FCM 푸시 토큰 발급 (앱 꺼져도 알림)
+            if (window.FcmPush && typeof window.FcmPush.init === "function") {
+              window.FcmPush.init();
+            }
+          }
+          refreshNotifyBtn();
         });
       });
     }
