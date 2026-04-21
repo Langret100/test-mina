@@ -1,4 +1,41 @@
 /* ============================================================
+   Firebase Messaging SDK - 백그라운드 푸시 수신용
+   ============================================================ */
+importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+
+firebase.initializeApp({
+  apiKey: "__FIREBASE_API_KEY__",
+  authDomain: "web-ghost-c447b.firebaseapp.com",
+  databaseURL: "https://web-ghost-c447b-default-rtdb.firebaseio.com",
+  projectId: "web-ghost-c447b",
+  storageBucket: "web-ghost-c447b.firebasestorage.app",
+  messagingSenderId: "198377381878",
+  appId: "1:198377381878:web:83b56b1b4d63138d27b1d7"
+});
+
+var messaging = firebase.messaging();
+
+// 백그라운드 푸시 수신 (앱이 꺼져 있을 때)
+messaging.onBackgroundMessage(function(payload) {
+  var title  = (payload.notification && payload.notification.title)  || '마이파이';
+  var body   = (payload.notification && payload.notification.body)   || '새 메시지가 있어요.';
+  var roomId = (payload.data && payload.data.room_id) || '';
+  var icon   = './images/icons/icon-192x192.png';
+  var badge  = './images/icons/icon-192x192.png';
+
+  self.registration.showNotification(title, {
+    body:     body,
+    icon:     icon,
+    badge:    badge,
+    tag:      'mypai-msg-' + (roomId || 'global'),
+    renotify: true,
+    vibrate:  [200, 100, 200],
+    data:     { roomId: roomId, url: './' }
+  });
+});
+
+/* ============================================================
    [sw.js] Service Worker - 마이파이 PWA
    ============================================================ */
 
