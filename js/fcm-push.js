@@ -129,9 +129,10 @@
         .then(function (token) { saveTokenToDb(token, _userId); })
         .catch(function (e) { console.warn('[FCM] 토큰 발급 실패:', e.message || e); });
     } else {
-      // 권한 요청은 사용자 인터랙션 후 (실시간 챗 알림 버튼과 연동)
-      window.addEventListener('ghost:fcm-request-permission', function handler() {
-        window.removeEventListener('ghost:fcm-request-permission', handler);
+      // 권한 미결정 → 첫 사용자 인터랙션(터치/클릭) 시 자동 요청
+      function _askPermission() {
+        document.removeEventListener('click', _askPermission);
+        document.removeEventListener('touchstart', _askPermission);
         Notification.requestPermission().then(function (perm) {
           if (perm === 'granted') {
             requestToken()
@@ -139,6 +140,13 @@
               .catch(function (e) { console.warn('[FCM] 토큰 발급 실패:', e.message || e); });
           }
         });
+      }
+      document.addEventListener('click', _askPermission, { once: true, passive: true });
+      document.addEventListener('touchstart', _askPermission, { once: true, passive: true });
+      // ghost:fcm-request-permission 이벤트로도 트리거 가능 (하위 호환)
+      window.addEventListener('ghost:fcm-request-permission', function handler() {
+        window.removeEventListener('ghost:fcm-request-permission', handler);
+        _askPermission();
       });
     }
   }

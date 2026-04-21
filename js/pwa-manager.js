@@ -10,8 +10,8 @@
 (function () {
   if (window.PwaManager) return;
 
-  var SW_PATH = "../sw.js";
-  var SW_SCOPE = "../";
+  var SW_PATH = "./sw.js";
+  var SW_SCOPE = "./";
   var LS_UNREAD = "ghostUnreadCounts_v1";  // { roomId: count }
   var swReg = null;
   var deferredPrompt = null; // beforeinstallprompt 이벤트
