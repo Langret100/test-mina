@@ -15,6 +15,7 @@
 
 const SHEET_CSV_URL = "https://script.google.com/macros/s/AKfycbz6PjWqKuoTmTalX7ieq3NuhJr-6DPwFQI3c7sDCu9cSCFDt90DP4Ju0yIjfjOgyNoI6w/exec";
 const SHEET_WRITE_URL = "https://script.google.com/macros/s/AKfycbz6PjWqKuoTmTalX7ieq3NuhJr-6DPwFQI3c7sDCu9cSCFDt90DP4Ju0yIjfjOgyNoI6w/exec";
+window.SHEET_WRITE_URL = SHEET_WRITE_URL; // ui.js 등에서 window.SHEET_WRITE_URL 참조용
 
     
 const SPREADSHEET_URL = SHEET_CSV_URL;
