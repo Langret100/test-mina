@@ -5,6 +5,11 @@
   <title>마이파이</title>
    <link rel="icon" href="./favicon.ico"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <link rel="manifest" href="./manifest.json">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#4caf50">
   <link rel="stylesheet" href="css/ghost.css">
 
 <style>
@@ -64,8 +69,48 @@ body.is-game-mode #ghost {
 .notebook-overlay .memo-label {
   font-size: 15px;
 }
+
+
+
+
+/* ── 전체화면 토글 버튼 (우측 상단, 구버전 코너 스타일) ── */
+#topLogoBtn {
+  position: fixed;
+  right: 10px;
+  top: 8px;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+  cursor: pointer;
+  z-index: 8000;
+}
+#topLogoBtn::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  right: 4px;
+  bottom: 4px;
+  border-radius: 4px;
+  border-top: 2px solid rgba(255, 255, 255, 0.38);
+  border-right: 2px solid rgba(255, 255, 255, 0.38);
+  border-left: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  pointer-events: none;
+}
+#topLogoBtn:hover::before {
+  border-top-color: rgba(255, 255, 255, 0.85);
+  border-right-color: rgba(255, 255, 255, 0.85);
+}
+
 </style></head>
 <body>
+<!-- 전체화면 토글 버튼 (우측 상단 코너) -->
+<button id="topLogoBtn" aria-label="전체화면"></button>
+
 <!-- [옵션 기능] 게임 전체화면 오버레이 -->
 <div id="gameOverlay" class="game-overlay hidden">
   <div class="game-topbar">
@@ -333,8 +378,6 @@ body.is-game-mode #ghost {
 </div>
 
 
-
--save.js"></script>
   <script src="js/teach.js"></script>
   <script src="js/map.js"></script>
   <script src="js/settings.js"></script>
@@ -410,6 +453,8 @@ body.is-game-mode #ghost {
   <!-- [옵션 기능] 오늘의 운세 모듈 -->
   <script src="js/fortune-today.js"></script>
   <!-- [옵션 기능] 전체 화면 토글 버튼 모듈 -->
+  <script src="js/pwa-manager.js"></script>
+  <script src="js/profile-manager.js"></script>
   <script src="js/fullscreen-toggle.js"></script>
   <script src="js/mail-notify.js"></script>
   <script src="js/game-math-explorer-report.js"></script>
