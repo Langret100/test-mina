@@ -10,8 +10,10 @@
 (function () {
   if (window.PwaManager) return;
 
-  var SW_PATH = "./sw.js";
-  var SW_SCOPE = "./";
+  // 루트 기준 절대경로 — games/ 등 하위 폴더에서도 올바르게 등록됨
+  var _root = location.pathname.replace(/\/[^\/]*$/, '/').replace(/\/games\/.*/, '/').replace(/\/[^\/]+\.[^\/]+$/, '/');
+  var SW_PATH = _root + "sw.js";
+  var SW_SCOPE = _root;
   var LS_UNREAD = "ghostUnreadCounts_v1";  // { roomId: count }
   var swReg = null;
   var deferredPrompt = null; // beforeinstallprompt 이벤트
