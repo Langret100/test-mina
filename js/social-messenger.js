@@ -1501,6 +1501,9 @@ function scheduleRoomRefresh(roomId) {
     } catch (e) {
       console.warn("[messenger] 시트 백업 예외(무시):", e);
     }
+
+    // 2) FCM 푸시 알림 요청 (Apps Script 경유)
+    try { __sendFcmPushNotify(currentRoomId || "", getSafeNickname(), clean); } catch (eFcm) {}
   }
 
   function sendCurrentMessage() {
@@ -1842,6 +1845,7 @@ onPickImage: async function () {
     } catch (e) {
       console.warn("[messenger] 이미지 시트 백업 예외(무시):", e);
     }
+    try { __sendFcmPushNotify(currentRoomId || "", getSafeNickname(), "📷 사진"); } catch (eFcm) {}
   }
 
     function sendFileMessage(fileUrl, fileName, fileMime, fileSize) {
@@ -2142,4 +2146,134 @@ attachEvents();
   } else {
     setTimeout(init, 0);
   }
+
+  /* ── FCM 푸시 알림 요청 (Apps Script 경유) ── */
+  /**
+   * __sendFcmPushNotify — FCM 푸시 알림 요청
+   *
+   * 제외 조건 (알림 안 보내는 경우):
+   *   1) 보내는 사람 본인 → 자기 자신에게는 안 보냄
+   *   2) 해당 방을 구독하지 않은 유저 → ghostRoomVisited_v1 기준
+   *   3) 수신자가 현재 이 방을 열고 있는 경우
+   *      → DB /fcm_active_room/{userId} 에 현재 방 ID를 저장해두고 비교
+   *
+   * [제거 시] social-messenger.js 에서 이 함수 호출부 3곳과 함수 본체 삭제
+   */
+  function __sendFcmPushNotify(roomId, senderNick, text) {
+    try {
+      if (typeof window.postToSheet !== "function") return;
+      var db = ensureFirebase();
+      if (!db) return;
+
+      // 현재 내 활성 방 정보를 DB에 기록 (수신 측 제외 판단용)
+      // /fcm_active_room/{userId} = { room_id, ts }
+      if (myId) {
+        var safeId = String(myId).replace(/[.#$\[\]]/g, "_");
+        db.ref("fcm_active_room/" + safeId).set({
+          room_id: roomId || "",
+          ts: Date.now()
+        }).catch(function(){});
+      }
+
+      // Firebase DB에서 해당 방 구독 토큰 목록 조회 후 Apps Script로 전달
+      Promise.all([
+        db.ref("fcm_tokens").once("value"),
+        db.ref("fcm_active_room").once("value")
+      ]).then(function (results) {
+        var tokenSnap  = results[0];
+        var activeSnap = results[1];
+        if (!tokenSnap.exists()) return;
+
+        // 현재 해당 방을 보고 있는 유저 ID 목록
+        var activeInRoom = {};
+        activeSnap.forEach(function (child) {
+          var v = child.val() || {};
+          var age = Date.now() - (v.ts || 0);
+          // 30초 이내에 활성 기록이 있고, 같은 방이면 제외
+          if (age < 30000 && String(v.room_id) === String(roomId)) {
+            activeInRoom[child.key] = true;
+          }
+        });
+
+        var tokens = [];
+        tokenSnap.forEach(function (child) {
+          var v = child.val() || {};
+          if (!v.token) return;
+
+          // 1) 내 토큰 제외 (발신자)
+          if (v.user_id && myId && String(v.user_id) === String(myId)) return;
+
+          // 2) 현재 해당 방 열고 있는 유저 제외
+          var safeUid = String(v.user_id || "").replace(/[.#$\[\]]/g, "_");
+          if (activeInRoom[safeUid]) return;
+
+          // 3) 해당 방 구독자만 (방문한 적 있는 방)
+          var rooms = String(v.rooms || "global").split(",");
+          var isSubscribed = rooms.indexOf(String(roomId)) >= 0
+            || (roomId === "global")
+            || rooms.indexOf("global") >= 0;
+          if (!isSubscribed) return;
+
+          tokens.push(v.token);
+        });
+
+        if (tokens.length === 0) return;
+
+        // Apps Script에 FCM 푸시 발송 요청
+        window.postToSheet({
+          mode:    "fcm_push",
+          room_id: roomId || "global",
+          sender:  senderNick || "누군가",
+          body:    text ? (text.length > 50 ? text.slice(0, 50) + "…" : text) : "새 메시지",
+          tokens:  tokens.join(",")
+        }).catch(function () {});
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
+  /* ── 방 입장/퇴장 시 활성 방 정보 갱신 ── */
+  /* switchRoom 호출 시 /fcm_active_room/{userId} 갱신 — 알림 제외 판단용 */
+  var __origSwitchRoomForFcm = null;
+  function __patchSwitchRoomForFcm() {
+    if (typeof switchRoom !== "function" || __origSwitchRoomForFcm) return;
+    __origSwitchRoomForFcm = switchRoom;
+    switchRoom = function (roomId, roomInfo) {
+      // 방 이동 시 활성 방 갱신
+      if (myId && roomId) {
+        try {
+          var db2 = ensureFirebase();
+          if (db2) {
+            var safeId2 = String(myId).replace(/[.#$\[\]]/g, "_");
+            db2.ref("fcm_active_room/" + safeId2).set({
+              room_id: String(roomId),
+              ts: Date.now()
+            }).catch(function(){});
+          }
+        } catch (e2) {}
+      }
+      return __origSwitchRoomForFcm.apply(this, arguments);
+    };
+  }
+  // 초기화 후 패치
+  setTimeout(__patchSwitchRoomForFcm, 500);
+
+  /* ── sw.js에서 FCM 수신 시 배지/방 이동 처리 ── */
+  navigator.serviceWorker && navigator.serviceWorker.addEventListener("message", function (ev) {
+    try {
+      var d = ev && ev.data;
+      if (!d) return;
+      // 푸시 수신 → pwa-manager 배지 증가
+      if (d.type === "FCM_PUSH_RECEIVED" && d.roomId) {
+        if (window.PwaManager && typeof window.PwaManager.incrementUnread === "function") {
+          window.PwaManager.incrementUnread(d.roomId);
+        }
+      }
+      // 알림 클릭 → 해당 방으로 이동
+      if (d.type === "FCM_OPEN_ROOM" && d.roomId) {
+        if (typeof switchRoom === "function") {
+          switchRoom(d.roomId, null);
+        }
+      }
+    } catch (e) {}
+  });
 })();

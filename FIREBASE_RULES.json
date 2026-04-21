@@ -1,0 +1,76 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "socialChatRooms": {
+      "$roomId": {
+        "$msgId": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.hasChildren(['user_id','nickname','ts'])
+            && newData.child('nickname').isString()
+            && newData.child('nickname').val().length <= 30
+            && newData.child('ts').isNumber()"
+        }
+      }
+    },
+
+    "signals": {
+      "$roomId": {
+        "$signalId": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.child('ts').isNumber()"
+        }
+      }
+    },
+
+    "messages": {
+      "$roomId": {
+        ".read": true,
+        ".write": true,
+        ".indexOn": ["ts"],
+        "$msgId": {
+          ".validate": "newData.hasChildren(['user_id','ts'])
+            && newData.child('ts').isNumber()"
+        }
+      }
+    },
+
+    "profiles": {
+      "$nickname": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['imgBase64']) || newData.hasChildren(['imgUrl'])
+          && $nickname.length <= 30"
+      }
+    },
+
+    "fcm_active_room": {
+      "$userId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['room_id', 'ts']) && newData.child('ts').isNumber()"
+      }
+    },
+
+    "fcm_tokens": {
+      "$userId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['token', 'ts']) && newData.child('token').isString() && newData.child('ts').isNumber()"
+      }
+    },
+
+    "rooms": {
+      "$roomId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['name'])
+          && newData.child('name').isString()
+          && newData.child('name').val().length <= 50"
+      }
+    }
+  }
+}

@@ -21,13 +21,16 @@
   'use strict';
 
   /* ── 레이어 정의 ── */
+  var _isMob = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+               (navigator.maxTouchPoints > 1 && window.innerWidth < 900);
+
   var LAYERS = [
     { ids: ['bg-container', 'waveBackground', 'snowLayer'],
       tx: -8, ty: -5 },
     { ids: ['ghostContainer', 'bubbleWrapper'],
-      tx: 16, ty:  0 },  /* Y 이동 없음 — 발끝 고정 */
+      tx: _isMob ? 6 : 16, ty: 0 },  /* 모바일: 16→6 축소, Y 고정 */
     { ids: ['chatDock'],
-      tx:  5, ty:  3 },
+      tx: _isMob ? 3 :  5, ty: _isMob ? 2 : 3 },
     { ids: ['clockWidget', 'questStatusBar'],
       tx:  6, ty:  4 },
     { ids: ['notebook-menu-overlay', 'boardPanel', 'manualPanel',
@@ -110,8 +113,8 @@
   function floatStep(ts) {
     if (!gyroAvail) {
       var t = ts * 0.001;
-      tgt.x = Math.sin(t * 0.38) * 0.30 + Math.sin(t * 0.15) * 0.12;
-      tgt.y = Math.cos(t * 0.27) * 0.22 + Math.cos(t * 0.21) * 0.09;
+      tgt.x = Math.sin(t * 0.38) * 0.15 + Math.sin(t * 0.15) * 0.06;
+      tgt.y = Math.cos(t * 0.27) * 0.10 + Math.cos(t * 0.21) * 0.04;
     }
   }
 
@@ -134,8 +137,7 @@
 
   /* ── 초기화 ── */
   function init() {
-    isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
-               (navigator.maxTouchPoints > 1 && window.innerWidth < 900);
+    isMobile = _isMob;
 
     if (isMobile) { requestGyro(); } else { initMouse(); }
     rafId = requestAnimationFrame(loop);
