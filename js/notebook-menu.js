@@ -357,3 +357,122 @@ function initNotebookMenu() {
   window.openNotebookMenu = openNotebookMenu;
   window.closeNotebookMenu = closeNotebookMenu;
 }
+
+/* ── 게시판 패널 열기/닫기 + 글 목록 로드 ── */
+(function () {
+  var PAGE_SIZE = 10;
+  var _page = 1;
+  var _allItems = [];
+
+  function openBoardPanel() {
+    var panel = document.getElementById('boardPanel');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    panel.classList.add('open');
+    loadBoardList();
+  }
+
+  function closeBoardPanel() {
+    var panel = document.getElementById('boardPanel');
+    if (!panel) return;
+    panel.classList.add('hidden');
+    panel.classList.remove('open');
+  }
+
+  function renderPage() {
+    var container = document.getElementById('boardListContainer');
+    var pageInfo = document.getElementById('boardPageInfo');
+    if (!container) return;
+
+    var totalPages = Math.max(1, Math.ceil(_allItems.length / PAGE_SIZE));
+    if (_page < 1) _page = 1;
+    if (_page > totalPages) _page = totalPages;
+
+    var start = (_page - 1) * PAGE_SIZE;
+    var slice = _allItems.slice(start, start + PAGE_SIZE);
+
+    if (slice.length === 0) {
+      container.innerHTML = '<div style="color:#aaa;text-align:center;padding:24px;">등록된 글이 없습니다.</div>';
+    } else {
+      container.innerHTML = slice.map(function (item, i) {
+        return [
+          '<div class="board-item" style="padding:10px 8px;border-bottom:1px solid #eee;cursor:pointer;" data-idx="' + (start + i) + '">',
+          '  <div style="font-weight:600;font-size:14px;">' + escHtml(item.title || '(제목없음)') + '</div>',
+          '  <div style="font-size:12px;color:#888;margin-top:2px;">' + escHtml(item.author || '') + ' · ' + escHtml(item.date || '') + '</div>',
+          '</div>'
+        ].join('');
+      }).join('');
+
+      // 글 클릭 시 내용 표시
+      container.querySelectorAll('.board-item').forEach(function (el) {
+        el.addEventListener('click', function () {
+          var idx = parseInt(el.dataset.idx, 10);
+          var item = _allItems[idx];
+          if (!item) return;
+          var hint = document.getElementById('boardHint');
+          if (hint) {
+            hint.classList.remove('hidden');
+            hint.innerHTML = [
+              '<div style="font-weight:700;font-size:15px;margin-bottom:6px;">' + escHtml(item.title || '') + '</div>',
+              '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + escHtml(item.author || '') + ' · ' + escHtml(item.date || '') + '</div>',
+              '<div style="font-size:14px;line-height:1.6;white-space:pre-wrap;">' + escHtml(item.content || '') + '</div>'
+            ].join('');
+          }
+        });
+      });
+    }
+
+    if (pageInfo) pageInfo.textContent = _page + ' / ' + totalPages;
+  }
+
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function loadBoardList() {
+    var container = document.getElementById('boardListContainer');
+    if (container) container.innerHTML = '<div style="color:#aaa;text-align:center;padding:24px;">불러오는 중...</div>';
+
+    if (typeof window.postToSheet !== 'function') {
+      if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">연결 오류</div>';
+      return;
+    }
+
+    window.postToSheet({ mode: 'board_list' }).then(function (res) {
+      var data = null;
+      try {
+        if (typeof res === 'string') data = JSON.parse(res);
+        else if (res && res.items) data = res;
+        else if (res && res.ok) data = res;
+      } catch (e) {}
+
+      if (data && Array.isArray(data.items)) {
+        _allItems = data.items;
+      } else {
+        _allItems = [];
+      }
+      _page = 1;
+      renderPage();
+    }).catch(function () {
+      if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">불러오기 실패</div>';
+    });
+  }
+
+  // 버튼 핸들러 등록
+  document.addEventListener('DOMContentLoaded', function () {
+    var closeBtn = document.getElementById('boardCloseBtn');
+    var backdrop = document.querySelector('#boardPanel .board-backdrop');
+    var reloadBtn = document.getElementById('boardReloadBtn');
+    var prevBtn = document.getElementById('boardPrevPageBtn');
+    var nextBtn = document.getElementById('boardNextPageBtn');
+
+    if (closeBtn) closeBtn.addEventListener('click', closeBoardPanel);
+    if (backdrop) backdrop.addEventListener('click', closeBoardPanel);
+    if (reloadBtn) reloadBtn.addEventListener('click', loadBoardList);
+    if (prevBtn) prevBtn.addEventListener('click', function () { _page--; renderPage(); });
+    if (nextBtn) nextBtn.addEventListener('click', function () { _page++; renderPage(); });
+  });
+
+  window.openBoardPanel = openBoardPanel;
+  window.closeBoardPanel = closeBoardPanel;
+})();

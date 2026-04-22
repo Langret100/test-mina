@@ -1843,7 +1843,7 @@ body {
 .letter-header {
   display: flex;
   align-items: center;
-  justify-content: stretch;
+  justify-content: space-between;
   margin-bottom: 2px;
 }
 
@@ -1851,6 +1851,7 @@ body {
   font-size: 18px;
   font-weight: 700;
   color: #4c2b20;
+  flex: 1;
 }
 
 .letter-close {
@@ -1860,6 +1861,8 @@ body {
   line-height: 1;
   cursor: pointer;
   color: #8b5a3c;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .letter-body {
