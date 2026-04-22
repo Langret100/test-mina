@@ -439,21 +439,22 @@ function initNotebookMenu() {
     }
 
     window.postToSheet({ mode: 'board_list' }).then(function (res) {
-      var data = null;
-      try {
-        if (typeof res === 'string') data = JSON.parse(res);
-        else if (res && res.items) data = res;
-        else if (res && res.ok) data = res;
-      } catch (e) {}
-
+      // postToSheet가 fetch Response 객체를 반환하므로 .json() 호출
+      if (res && typeof res.json === 'function') return res.json();
+      if (typeof res === 'string') return JSON.parse(res);
+      return res;
+    }).then(function (data) {
       if (data && Array.isArray(data.items)) {
         _allItems = data.items;
+      } else if (data && Array.isArray(data)) {
+        _allItems = data;
       } else {
         _allItems = [];
       }
       _page = 1;
       renderPage();
-    }).catch(function () {
+    }).catch(function (err) {
+      console.warn('[Board] 불러오기 실패:', err);
       if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">불러오기 실패</div>';
     });
   }

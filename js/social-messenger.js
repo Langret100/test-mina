@@ -2223,7 +2223,15 @@ attachEvents();
           sender:  senderNick || "누군가",
           body:    text ? (text.length > 50 ? text.slice(0, 50) + "…" : text) : "새 메시지",
           tokens:  tokens.join(",")
-        }).catch(function () {});
+        }).then(function(res) {
+          if (res && typeof res.json === "function") {
+            res.json().then(function(d) {
+              console.log("[FCM] 발송 결과:", JSON.stringify(d));
+            }).catch(function(){});
+          }
+        }).catch(function (e) {
+          console.warn("[FCM] 발송 요청 실패:", e);
+        });
       }).catch(function () {});
     } catch (e) {}
   }
