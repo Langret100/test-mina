@@ -2,19 +2,8 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>마이파이</title>
+  <title>실시간 톡</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-
-  <!-- PWA -->
-  <link rel="manifest" href="../manifest.json">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="마이파이">
-  <meta name="theme-color" content="#4caf50">
-  <link rel="apple-touch-icon" href="../images/icons/apple-touch-icon.png">
-  <link rel="icon" href="../images/icons/favicon.ico" sizes="any">
-  <link rel="icon" type="image/png" sizes="32x32" href="../images/icons/favicon-32x32.png">
   <style>
     * {
       box-sizing: border-box;
@@ -54,14 +43,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      border: none;
-      background: transparent;
-      cursor: pointer;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-      user-select: none;
     }
-    .messenger-topbar-logo:active { opacity: 0.88; }
     .messenger-topbar-logo img {
       height: 68px; /* 로고만 더 크게 (상단바 높이는 유지) */
       max-height: 100%;
@@ -69,30 +51,23 @@
     }
     .messenger-topbar-close {
       position: absolute;
-      right: 10px;
+      right: 16px;
       top: 50%;
       transform: translateY(-50%);
       border: none;
-      background: rgba(0,0,0,0.12);
-      border-radius: 50%;
-      width: 30px;
-      height: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 15px;
-      line-height: 1;
+      background: transparent;
+      font-size: 18px;
       cursor: pointer;
-      color: #fff;
+      color: #4b5563;
       outline: none;
       -webkit-tap-highlight-color: transparent;
       user-select: none;
-      transition: background 0.15s;
     }
     .messenger-topbar-close:active {
-      background: rgba(0,0,0,0.28);
+      background: transparent;
     }
-/* ===== 상단바: 현재 대화방 버튼(왼쪽) ===== */
+    
+    /* ===== 상단바: 현재 대화방 버튼(왼쪽) ===== */
     .messenger-topbar-roombtn{
       position: absolute;
       left: 12px;
@@ -177,7 +152,12 @@
     .msg-row.other {
       justify-content: flex-start;
     }
-    /* msg-inner, msg-avatar, msg-content-wrap 등은 하단 카톡 스타일 CSS 참고 */
+    .msg-inner {
+      max-width: 78%;
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 4px;
+    }
     .bubble {
       padding: 8px 12px;
       border-radius: 18px;
@@ -226,7 +206,19 @@
       color: #111827;
       border-bottom-left-radius: 4px;
     }
-    /* msg-meta 는 하단 카톡 스타일 CSS에서 재정의 */
+    .msg-meta {
+      font-size: 11px;
+      color: #6b7280;
+      white-space: nowrap;
+      margin-bottom: 2px;
+    }
+    .msg-row.me .msg-meta {
+      /* 내 메시지는 시간표시가 말풍선 반대쪽(좌측)에 오므로, 좌측 정렬 */
+      text-align: left;
+    }
+    .msg-row.other .msg-meta {
+      text-align: left;
+    }
     .empty-hint {
       margin-top: 24px;
       font-size: 13px;
@@ -284,6 +276,29 @@
     .msg-camera-btn:active {
       background: rgba(148,163,184,0.5);
     }
+
+    /* =========================================================
+       [버튼 꾹 누름(롱프레스) 방지]
+       - 입력창 주변(😊, +, 보내기) 및 첨부/이모티콘 패널 버튼을
+         꾹 눌렀을 때 파란 하이라이트/컨텍스트 메뉴가 뜨는 현상 방지
+       - 클릭/탭 기능은 유지
+       ========================================================= */
+    .messenger-input-bar button,
+    .msg-attach-menu button,
+    .msg-emoji-panel button {
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      outline: none;
+      touch-action: manipulation;
+    }
+    .messenger-input-bar button:focus,
+    .msg-attach-menu button:focus,
+    .msg-emoji-panel button:focus {
+      outline: none;
+    }
+
 
     /* =========================================================
        [+ 첨부 메뉴]
@@ -473,84 +488,41 @@
       min-height: 0;
       width: 100%;
     }
-
-    /* ══════════════════════════════════════════════════════
-       대화방 패널 레이아웃
-       - PC  : 오버레이(버튼 눌러야 열림, 기존 방식)
-       - 모바일 : 전체화면 슬라이드
-    ══════════════════════════════════════════════════════ */
-
-    /* 공통 기본값: flex layout에서 제거, 오버레이 방식 */
     .room-panel {
-      position: fixed;
-      left: 0;
-      top: 50px;
-      bottom: 0;
-      width: 300px;
-      max-width: 86vw;
-      background: #f8fafc;
+      width: 240px;
+      max-width: 78vw;
+      min-width: 200px;
+      background: #ffffff;
       display: flex;
       flex-direction: column;
       min-height: 0;
-      border-right: 1px solid rgba(0,0,0,0.08);
+
+      /* 기본: 숨김(채팅창을 넓게) */
+      position: fixed;
+      left: 0;
+      top: 50px;   /* topbar 높이 */
+      bottom: 0;
       transform: translateX(-110%);
-      transition: transform 0.22s cubic-bezier(.4,0,.2,1);
-      box-shadow: 8px 0 32px rgba(15,23,42,0.15);
+      transition: transform 0.18s ease-out;
+      box-shadow: 16px 0 36px rgba(15,23,42,0.18);
       z-index: 50;
+      border-right: 1px solid rgba(0,0,0,0.06);
     }
     .room-panel.open {
       transform: translateX(0);
-    }
-
-    /* backdrop: 패널 뒤 어두운 배경 */
-    .room-backdrop {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.28);
-      z-index: 49;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.22s;
-    }
-    .room-backdrop.open {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    /* topbar 방 버튼: 항상 표시 */
-    .messenger-topbar-roombtn { display: flex !important; }
-
-    /* chat-panel: 항상 전체 너비 */
-    .chat-panel {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-      min-height: 0;
-    }
-
-    /* 모바일: 패널 전체화면 */
-    @media (max-width: 600px) {
-      .room-panel {
-        width: 100vw;
-        max-width: 100vw;
-        box-shadow: none;
-      }
     }
     .room-panel-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 12px 10px;
-      border-bottom: 1px solid rgba(0,0,0,0.07);
-      background: #f8fafc;
+      padding: 10px 10px 8px;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
     }
     .room-panel-title {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 800;
       color: #111827;
-      letter-spacing: -0.3px;
+      letter-spacing: -0.2px;
     }
     .room-add-btn {
       width: 28px;
@@ -565,122 +537,64 @@
     .room-list {
       flex: 1;
       overflow-y: auto;
-      padding: 6px 0;
+      padding: 8px;
       display: flex;
       flex-direction: column;
-      gap: 0;
+      gap: 8px;
       min-height: 0;
     }
-    /* 카톡 스타일 방 아이템 */
     .room-item {
       width: 100%;
       text-align: left;
-      border: none;
-      border-bottom: 1px solid rgba(0,0,0,0.04);
-      background: transparent;
-      border-radius: 0;
-      padding: 11px 14px 11px 12px;
+      border: 1px solid rgba(0,0,0,0.08);
+      background: #ffffff;
+      border-radius: 14px;
+      padding: 10px 10px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      transition: background 0.1s;
     }
-    .room-item:active,
-    .room-item:hover { background: rgba(37,99,235,0.06); }
     .room-item.active {
-      background: rgba(37,99,235,0.10);
-      border-left: 3px solid #2563eb;
-      padding-left: 9px;
-    }
-    .room-item-info {
-      flex: 1;
-      min-width: 0;
+      border-color: rgba(0,0,0,0.18);
+      background: #f8fafc;
     }
     .room-name {
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 800;
       color: #111827;
-      line-height: 1.3;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      line-height: 1.2;
+      word-break: break-word;
     }
     .room-meta {
-      margin-top: 2px;
+      margin-top: 4px;
       font-size: 11px;
-      color: #9ca3af;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      color: #6b7280;
     }
-    /* 미확인 배지 */
-    .room-item { position: relative; padding-right: 30px; }
-    .room-unread-badge {
-      position: absolute;
-      top: 50%;
+
+    /* 방별 미확인(새 글) 표시: 오른쪽 위 점 */
+    .room-item { position: relative; padding-right: 38px; }
+    .room-unread-badge{
+      position:absolute;
+      top: 12px;
       right: 12px;
-      transform: translateY(-50%);
-      min-width: 18px;
-      height: 18px;
+      width: 10px;
+      height: 10px;
       border-radius: 999px;
       background: #ef4444;
-      color: #fff;
-      font-size: 10px;
-      font-weight: 800;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.95);
       display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 0 4px;
     }
-    .room-unread-badge.show { display: flex; }
+    .room-unread-badge.show{ display:block; }
 
-    /* ── 방 아이콘 프로필 그리드 (카톡 스타일) ── */
-    .room-item-icon {
-      width: 46px;
-      height: 46px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #6366f1 0%, #2563eb 100%);
+    .chat-panel {
+      flex: 1;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-      color: #fff;
-      overflow: hidden;
-      position: relative;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
     }
-    .room-item.active .room-item-icon {
-      background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-    }
-    /* 1명: 꽉 채움 */
-    .room-icon-grid-1 { padding: 0; }
-    .room-icon-grid-1 .room-icon-avatar {
-      width: 100%; height: 100%;
-      object-fit: cover;
-    }
-    /* 2명: 세로 반반 */
-    .room-icon-grid-2 {
-      flex-direction: row;
-      gap: 1px;
-      background: #e5e7eb;
-      padding: 0;
-    }
-    .room-icon-grid-2 .room-icon-avatar {
-      width: 50%; height: 100%;
-      object-fit: cover;
-    }
-    /* 3~4명: 2x2 그리드 */
-    .room-icon-grid-4 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      grid-template-rows: 1fr 1fr;
-      gap: 1px;
-      background: #e5e7eb;
-      padding: 0;
-    }
-    .room-icon-grid-4 .room-icon-avatar {
-      width: 100%; height: 100%;
-      object-fit: cover;
+
+    /* 작은 화면: 방 목록 폭을 줄이고, 필요시 스크롤 */
+    @media (max-width: 520px) {
+      .room-panel { width: 220px; min-width: 180px; }
     }
 
   
@@ -784,72 +698,17 @@
 
       .zoom-open-link{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:#fff;text-decoration:underline;font-size:14px;opacity:.85;display:none;z-index:10000;}
     .img-zoom-overlay.open .zoom-open-link{display:block;}
-
-    /* ===== 카톡 스타일: 프로필 아바타 + 보낸이 이름 ===== */
-    .msg-inner {
-      max-width: 82%;
-      display: inline-flex;
-      align-items: flex-start;
-      gap: 4px;
-    }
-    .msg-avatar {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      object-fit: cover;
-      background: #e0e7ff;
-      flex-shrink: 0;
-      align-self: flex-start;
-    }
-    .msg-content-wrap {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-    .msg-row.me .msg-content-wrap { align-items: flex-end; }
-    .msg-row.other .msg-content-wrap { align-items: flex-start; }
-    .msg-sender-name {
-      font-size: 11px;
-      font-weight: 700;
-      color: #374151;
-      padding-left: 4px;
-      margin-bottom: 1px;
-    }
-    .msg-meta {
-      font-size: 10px;
-      color: #9ca3af;
-      white-space: nowrap;
-      align-self: flex-end;
-      margin-bottom: 2px;
-      padding: 0 2px;
-    }
-    /* ===== 기어 버튼 ===== */
-    #profileGearBtn:hover { color: #2563eb !important; }
-    #profileGearBtn:active { opacity: 0.7; }
-    /* ===== 배경 이미지 반투명 오버레이 ===== */
-    .messenger-body { position: relative; overflow-y: auto; }
-    .bg-overlay-layer {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      z-index: 0;
-      background: rgba(244,246,251,0.72);
-    }
-    .msg-row, .date-separator, .empty-hint, .room-empty-hint {
-      position: relative;
-      z-index: 1;
-    }
 </style>
 </head>
 <body>
   <div class="messenger-shell">
     <div class="messenger-topbar">
       <button class="messenger-topbar-roombtn" id="topRoomBtn" type="button" aria-expanded="false">전체 대화방</button>
-      <button class="messenger-topbar-logo" id="topLogoBtn" type="button" aria-label="전체화면 전환" title="전체화면 전환">
+      <div class="messenger-topbar-logo">
         <img src="../images/etcimage/mypai-logo.png" alt="마이파이 로고">
-      </button>
-      <button id="topCloseBtn" class="messenger-topbar-close" type="button" aria-label="메신저 닫기" title="닫기">✕</button>
-          </div>
+      </div>
+      <button class="messenger-topbar-close" id="topCloseBtn" type="button">✕</button>
+    </div>
     <div id="roomBackdrop" class="room-backdrop" aria-hidden="true"></div>
     <div class="messenger-main">
       <div class="room-panel" id="roomPanel">
@@ -870,7 +729,7 @@
       <div class="msg-input-wrap">
         <button id="msgEmojiBtn" class="msg-emoji-btn" type="button">😊</button>
         <button id="msgCameraBtn" class="msg-camera-btn" type="button" title="첨부">＋</button>
-        <input id="msgInput" class="msg-input" type="text" placeholder="메시지 입력 (@미나 질문하기)">
+        <input id="msgInput" class="msg-input" type="text" placeholder="메시지를 입력하세요">
       </div>
       <button id="msgSendBtn" class="send-btn" type="button">보내기</button>
       <div id="msgEmojiPanel" class="msg-emoji-panel"></div>
@@ -888,11 +747,11 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
   <script src="../js/config.js"></script>
-<script src="../js/ui.js"></script>
-  <script src="../js/fullscreen-toggle.js"></script>
+  <script src="../js/ui.js"></script>
+  <script src="../js/fcm-push.js"></script>
   <script src="../js/messenger-press-guard.js"></script>
-  <script src="../js/send-voice-hold.js"></script>
   <script src="../js/messenger-close-bridge.js"></script>
   <script>window.CHAT_EMOJI_BASE_PATH = "../images/emoticon/";</script>
   <script src="../js/chat-emoji.js"></script>
@@ -906,240 +765,6 @@
   <script src="../js/chat-qr.js"></script>
   <script src="../js/signals.js"></script>
   <script src="../js/room-message-stream.js"></script>
-  <script src="../js/firebase-rooms.js"></script>
-  <script src="../js/pwa-manager.js"></script>
-  <script src="../js/profile-manager.js"></script>
   <script src="../js/social-messenger.js"></script>
-
-  <!-- ── 캐릭터에게 물어보기 패치 ──────────────────────────────
-       @미나, 미나야 등으로 시작하면 캐릭터가 인라인으로 응답.
-       부모 창과 postMessage(WG_CORE_BRIDGE_REQUEST)로 통신하여
-       file:// 환경에서도 cross-origin 없이 동작.
-       내 질문도 채팅창에 표시 후 캐릭터 응답 추가.
-  ──────────────────────────────────────────────────────────── -->
-  <script>
-  (function () {
-
-    /* ── postMessage 브릿지 ── */
-    var _pendingBridge = {};
-    window.addEventListener('message', function (ev) {
-      var d = ev && ev.data;
-      if (!d || d.type !== 'WG_CORE_BRIDGE_RESPONSE') return;
-      var cb = _pendingBridge[d.requestId];
-      if (!cb) return;
-      delete _pendingBridge[d.requestId];
-      if (d.ok) cb.resolve(d.result);
-      else cb.reject(new Error(d.error || 'bridge error'));
-    });
-
-    function bridgeCall(method, args) {
-      return new Promise(function (resolve, reject) {
-        var id = 'br_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-        _pendingBridge[id] = { resolve: resolve, reject: reject };
-        setTimeout(function () {
-          if (_pendingBridge[id]) {
-            delete _pendingBridge[id];
-            reject(new Error('timeout'));
-          }
-        }, 5000);
-        try {
-          window.parent.postMessage({
-            type: 'WG_CORE_BRIDGE_REQUEST',
-            requestId: id,
-            method: method,
-            args: args || []
-          }, '*');
-        } catch (e) { reject(e); }
-      });
-    }
-
-    /* ── 현재 캐릭터 이름/별칭 ── */
-    var _cachedCharName = null;
-    function getCharName() {
-      // 직접 접근 먼저 시도 (같은 origin)
-      try {
-        if (window.parent && window.parent.GhostCoreBridge &&
-            typeof window.parent.GhostCoreBridge.getCurrentCharacterName === 'function') {
-          _cachedCharName = window.parent.GhostCoreBridge.getCurrentCharacterName() || '미나';
-          return _cachedCharName;
-        }
-      } catch (e) {}
-      return _cachedCharName || '미나';
-    }
-
-    function getAliases(name) {
-      if (name === '미나') return ['미나', '민아', '민하'];
-      if (name === '민수') return ['민수'];
-      return [name];
-    }
-
-    /* ── 캐릭터 호출 감지 ── */
-    function extractGhostQuery(text) {
-      var t = (text || '').trim();
-      var name = getCharName();
-      var aliases = getAliases(name);
-      for (var i = 0; i < aliases.length; i++) {
-        var n = aliases[i];
-        var re = new RegExp('^[@]?' + n + '[야아:,!~ ]+', 'i');
-        if (re.test(t)) return t.replace(re, '').trim() || t;
-        if (t === '@' + n || t === n + '야' || t === n + '아' || t === n) return t;
-      }
-      return null;
-    }
-
-    /* ── 내 질문 채팅창에 표시 (로컬 렌더, 시트 전송 없음) ── */
-    function showMyQuery(text) {
-      try {
-        var body = document.getElementById('messengerBody');
-        if (!body) return;
-        var row = document.createElement('div');
-        row.className = 'msg-row me ghost-ask-row';
-        var inner = document.createElement('div');
-        inner.className = 'msg-inner';
-        var contentWrap = document.createElement('div');
-        contentWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;align-items:flex-end;';
-        var bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.style.cssText = 'background:#e9d5ff;color:#3b0764;';
-        bubble.textContent = text;
-        contentWrap.appendChild(bubble);
-        inner.appendChild(contentWrap);
-        row.appendChild(inner);
-        body.appendChild(row);
-        body.scrollTop = body.scrollHeight;
-      } catch (e) {}
-    }
-
-    /* ── 캐릭터 응답 채팅창에 표시 ── */
-    function showInlineGhostMsg(charName, line, faceImg) {
-      try {
-        var body = document.getElementById('messengerBody');
-        if (!body) return;
-        var DEFAULT_SVG = "data:image/svg+xml," + encodeURIComponent(
-          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">' +
-          '<circle cx="20" cy="20" r="20" fill="#c7d2fe"/>' +
-          '<circle cx="20" cy="15" r="7" fill="#818cf8"/>' +
-          '<ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
-
-        var row = document.createElement('div');
-        row.className = 'msg-row other ghost-ask-row';
-        var inner = document.createElement('div');
-        inner.className = 'msg-inner';
-
-        // 아바타
-        var avatarWrap = document.createElement('div');
-        avatarWrap.style.cssText = 'flex:0 0 auto;width:36px;margin-right:6px;align-self:flex-start;';
-        var avatarImg = document.createElement('img');
-        avatarImg.className = 'msg-avatar';
-        avatarImg.alt = charName;
-        avatarImg.src = faceImg || DEFAULT_SVG;
-        avatarImg.style.cssText = 'width:36px;height:36px;border-radius:50%;object-fit:cover;object-position:top;background:#e0e7ff;display:block;border:2px solid rgba(129,140,248,0.4);';
-        avatarImg.onerror = function () { this.onerror = null; this.src = DEFAULT_SVG; };
-        avatarWrap.appendChild(avatarImg);
-        inner.appendChild(avatarWrap);
-
-        // 콘텐츠
-        var contentWrap = document.createElement('div');
-        contentWrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;align-items:flex-start;';
-        var nameEl = document.createElement('div');
-        nameEl.className = 'msg-sender-name';
-        nameEl.style.cssText = 'font-size:11px;font-weight:700;color:#6366f1;padding-left:4px;margin-bottom:1px;';
-        nameEl.textContent = charName;
-        var bubble = document.createElement('div');
-        bubble.className = 'bubble';
-        bubble.style.cssText = 'background:linear-gradient(135deg,#e0e7ff,#f0f4ff);color:#1e293b;border:1px solid rgba(129,140,248,0.25);';
-        bubble.textContent = line;
-        contentWrap.appendChild(nameEl);
-        contentWrap.appendChild(bubble);
-        inner.appendChild(contentWrap);
-        row.appendChild(inner);
-        body.appendChild(row);
-        body.scrollTop = body.scrollHeight;
-      } catch (e) {}
-    }
-
-    /* ── 이벤트 가로채기 ── */
-    function patchSend() {
-      var input   = document.getElementById('msgInput');
-      var sendBtn = document.getElementById('msgSendBtn');
-      if (!input) return;
-
-      function handleGhostAsk() {
-        var text  = (input.value || '').trim();
-        if (!text) return false;
-        var query = extractGhostQuery(text);
-        if (query === null) return false;
-
-        input.value = '';
-        var charName = getCharName();
-
-        // 1) 내 질문 채팅창에 표시
-        showMyQuery(text);
-
-        // 2) postMessage 로 응답 요청
-        var faceImg = null;
-
-        // 캐릭터 얼굴 이미지 먼저 가져온 뒤 응답
-        bridgeCall('getCurrentCharacterFaceImg', [])
-          .catch(function () { return null; })
-          .then(function (src) {
-            if (src && !src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('../')) {
-              src = '../' + src;
-            }
-            faceImg = src;
-            return bridgeCall('getUnifiedCharacterChatResponse', [query, { allowCharacterCall: true }]);
-          })
-          .then(function (resp) {
-            var line = (resp && resp.line) ? resp.line : '응, 말해봐!';
-            showInlineGhostMsg(charName, line, faceImg);
-          })
-          .catch(function (err) {
-            // postMessage 실패 시 직접 접근 시도 (같은 origin)
-            try {
-              if (window.parent && window.parent.GhostCoreBridge &&
-                  typeof window.parent.GhostCoreBridge.getUnifiedCharacterChatResponse === 'function') {
-                window.parent.GhostCoreBridge
-                  .getUnifiedCharacterChatResponse(query, { allowCharacterCall: true })
-                  .then(function (resp) {
-                    var line = (resp && resp.line) ? resp.line : '응, 말해봐!';
-                    showInlineGhostMsg(charName, line, faceImg);
-                  })
-                  .catch(function () {
-                    showInlineGhostMsg(charName, '잘 못 들었어. 다시 말해줄래?', faceImg);
-                  });
-              } else {
-                showInlineGhostMsg(charName, '잘 못 들었어. 다시 말해줄래?', faceImg);
-              }
-            } catch (e2) {
-              showInlineGhostMsg(charName, '잘 못 들었어. 다시 말해줄래?', faceImg);
-            }
-          });
-
-        return true;
-      }
-
-      input.addEventListener('keydown', function (ev) {
-        if (ev.key !== 'Enter' || ev.shiftKey) return;
-        if (!handleGhostAsk()) return;
-        ev.preventDefault();
-        ev.stopImmediatePropagation();
-      }, true);
-
-      if (sendBtn) {
-        sendBtn.addEventListener('click', function (ev) {
-          if (!handleGhostAsk()) return;
-          ev.preventDefault();
-          ev.stopImmediatePropagation();
-        }, true);
-      }
-    }
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', patchSend);
-    } else {
-      setTimeout(patchSend, 100);
-    }
-  })();
-  </script>
-
 </body>
+</html>
