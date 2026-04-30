@@ -2222,13 +2222,18 @@ async function getUnifiedCharacterChatResponse(text, options = {}) {
     return { emotion: learnedResp.emotion || "경청", line: learnedResp.line };
   }
 
+  // ── 기존 혼합 후보 선택 (학습/내장 모두 신뢰 가능한 경우) ──────────────────
   const mixed = chooseDialogResponseCandidate([
     (!builtinLooksReliable || !learnedIsShortPartial) && learnedResp && learnedResp.line ? Object.assign({ source: "learned" }, learnedResp) : null,
     builtinResp && builtinResp.line ? Object.assign({ source: "builtin" }, builtinResp) : null
   ]);
   if (mixed && mixed.line) {
-    rememberUserInput(raw);
-    return { emotion: mixed.emotion, line: mixed.line };
+    // mixed가 generic_unknown 계열인지 체크 — 해당하면 연속성 로직으로 넘김
+    const mixedIsGeneric = isGenericUnknownBuiltinResponse(mixed);
+    if (!mixedIsGeneric) {
+      rememberUserInput(raw);
+      return { emotion: mixed.emotion, line: mixed.line };
+    }
   }
 
   const shortResp = getShortInputFallbackResponse(raw);
@@ -2244,6 +2249,22 @@ async function getUnifiedCharacterChatResponse(text, options = {}) {
     return { emotion: "기쁨", line: callLine };
   }
 
+  // ── 4단계 대화 연속성 로직 (dialog-continuity.js) ────────────────────────
+  // learnedResp / builtinResp 모두 없거나 generic_unknown 일 때 실행
+  if (typeof getContinuityResponse === "function") {
+    const contResp = getContinuityResponse(raw, learnedReactions);
+    if (contResp && contResp.line) {
+      rememberUserInput(raw);
+      rememberDialogLine(contResp.line, contResp.source || "continuity");
+      // 감정 이미지 연동: EMO에 있는 감정이면 그대로, 없으면 "경청"
+      const safeEmotion = (typeof EMO !== "undefined" && EMO && EMO[contResp.emotion])
+        ? contResp.emotion
+        : "경청";
+      return { emotion: safeEmotion, line: contResp.line };
+    }
+  }
+
+  // ── 최후 안전망 ───────────────────────────────────────────────────────────
   const fallbackLine = "응, 듣고 있어. 조금만 더 자세히 말해줘.";
   rememberUserInput(raw);
   rememberDialogLine(fallbackLine, "builtin");
@@ -2815,7 +2836,20 @@ if (
         return;
       }
 
-      // 일반적인 '모르는 말' 대응 (짧고 자연스럽게)
+      // 일반적인 '모르는 말' 대응 - 먼저 4단계 연속성 로직 시도
+      if (typeof getContinuityResponse === "function") {
+        const contResp = getContinuityResponse(strippedCommandText || text, learnedReactions);
+        if (contResp && contResp.line) {
+          rememberUserInput(normalizedUserText);
+          const safeEmotion = (typeof EMO !== "undefined" && EMO && EMO[contResp.emotion])
+            ? contResp.emotion : "경청";
+          setEmotion(safeEmotion, contResp.line, { source: contResp.source || "continuity" });
+          lastUnknownKey = null;
+          lastUnknownCount = 0;
+          return;
+        }
+      }
+
       const shortFallback = getShortInputFallbackResponse(strippedCommandText || text);
       if (shortFallback && shortFallback.line) {
         rememberUserInput(normalizedUserText);
