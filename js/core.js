@@ -2793,7 +2793,7 @@ if (
         }
       }
 
-      if (!shouldOfferTeach && mixedResp && mixedResp.emotion) {
+      if (!shouldOfferTeach && mixedResp && mixedResp.emotion && !isGenericUnknownBuiltinResponse(mixedResp)) {
         rememberUserInput(normalizedUserText);
         setEmotion(mixedResp.emotion, mixedResp.line || null, { source: mixedResp.source || "builtin" });
         lastUnknownKey = null;
