@@ -212,19 +212,41 @@
       entry.keywords.forEach(function (kw) {
         if (inputSet[kw]) {
           score += wordScore(kw);
-        } else if (raw.includes(kw)) {
-          score += wordScore(kw) * 0.5;
+        } else if (raw.includes(kw) && kw.length >= 2) {
+          // 부분 매칭은 키워드가 2글자 이상일 때만, 점수도 낮게
+          score += wordScore(kw) * 0.3;
         }
       });
+      // learned 항목에 소폭 보정 가중치 → 부분매칭 오버스코어 방지, 동점 시 약간 우세
+      if (score > 0 && entry.source === "learned") score *= 1.05;
       if (score > 0) candidates.push({ score: score, entry: entry });
     });
 
     if (!candidates.length) return null;
+    // 점수 내림차순 정렬
     candidates.sort(function (a, b) { return b.score - a.score; });
     var topScore = candidates[0].score;
     var topPool  = candidates.filter(function (c) { return c.score >= topScore; });
-    var freshPool= topPool.filter(function (c) { return c.entry.lines.some(function(l){ return !isRecentLine(l); }); });
-    var chosen   = (freshPool.length ? freshPool : topPool)[Math.floor(Math.random() * (freshPool.length || topPool.length))];
+
+    // learned 점수 합산 vs builtin 점수 합산 비교
+    // learned가 더 높으면 learned 풀에서만 선택
+    // 동점이면 learned + builtin 전체에서 랜덤 → 매번 다른 반응 가능
+    var learnedPool  = topPool.filter(function (c) { return c.entry.source === "learned"; });
+    var learnedTotal = learnedPool.reduce(function(s, c){ return s + c.score; }, 0);
+    var builtinPool  = topPool.filter(function (c) { return c.entry.source !== "learned"; });
+    var builtinTotal = builtinPool.reduce(function(s, c){ return s + c.score; }, 0);
+
+    var useTop;
+    if (learnedPool.length && learnedTotal > builtinTotal) {
+      // learned 점수 합산이 더 높음 → learned 우선
+      useTop = learnedPool;
+    } else {
+      // 동점이거나 learned 없음 → 전체 후보에서 랜덤 (learned + builtin 섞임)
+      useTop = topPool;
+    }
+
+    var freshPool = useTop.filter(function (c) { return c.entry.lines.some(function(l){ return !isRecentLine(l); }); });
+    var chosen    = (freshPool.length ? freshPool : useTop)[Math.floor(Math.random() * (freshPool.length || useTop.length))];
     return { emotion: resolveEmotion(chosen.entry.emotion), line: pickLine(chosen.entry.lines), source: chosen.entry.source };
   }
 
