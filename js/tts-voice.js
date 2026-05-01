@@ -173,8 +173,11 @@
       utter.rate = clampRange(mapRateToUtteranceRate(rateValue) * mapToneRateFactor(toneValue), SOUND_MIN, SOUND_MAX, 1.0);
 
       // 이전 재생 중인 음성 정리
+      // Chrome에서 cancel() 직후 speak() 시 첫 음절 끊김 방지 → 50ms 딜레이
       try { window.speechSynthesis.cancel(); } catch(e){}
-      window.speechSynthesis.speak(utter);
+      setTimeout(function() {
+        try { window.speechSynthesis.speak(utter); } catch(e2){}
+      }, 50);
     } catch(e){
       // 실패해도 UI에 영향은 없도록 무시
     }

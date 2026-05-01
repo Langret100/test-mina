@@ -80,6 +80,9 @@
       return;
     }
     if (isRecognizing) return;
+
+    // 매번 새 인스턴스 생성 (재사용 시 일부 환경에서 오류 발생)
+    recognition = null;
     const rec = ensureRecognition();
     if (!rec) {
       showInfoBubble("음성 인식을 시작할 수 없어요. 브라우저 설정을 확인해 주세요.");
@@ -87,18 +90,21 @@
     }
     isRecognizing = true;
     try {
-      showInfoBubble("지금 말씀해 주세요. 음성을 글로 옮길게요.");
+      showInfoBubble("🎤 지금 말씀해 주세요!");
+      // TTS 완전 정지 후 약간 대기하고 인식 시작
       if (window.speechSynthesis && window.speechSynthesis.cancel) {
         window.speechSynthesis.cancel();
       }
     } catch(e){}
-    try {
-      rec.start();
-    } catch(e){
-      isRecognizing = false;
-      // 예: 보안 연결(HTTPS)이 아닌 경우 등
-      showInfoBubble("이 페이지에서는 음성 인식을 시작할 수 없어요. https 환경인지 확인해 주세요.");
-    }
+    // TTS cancel 후 80ms 대기 → 마이크 간섭 방지
+    setTimeout(function() {
+      try {
+        rec.start();
+      } catch(e){
+        isRecognizing = false;
+        showInfoBubble("이 페이지에서는 음성 인식을 시작할 수 없어요. https 환경인지 확인해 주세요.");
+      }
+    }, 80);
   }
 
   function clearPressTimer(){

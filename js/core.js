@@ -1573,6 +1573,8 @@ function getLearnedDialogResponse(text) {
   const freshPool = pool.filter(function (item) {
     return recentLines.indexOf(String(item.reaction.message || '').trim()) === -1;
   });
+  // freshPool이 있으면 미사용 답변 우선, 없으면 모든 답변이 최근 사용됨
+  const allLinesRecent = freshPool.length === 0;
   if (freshPool.length) pool = freshPool;
 
   const pickedEntry = pool[Math.floor(Math.random() * pool.length)] || pool[0];
@@ -1585,7 +1587,8 @@ function getLearnedDialogResponse(text) {
     score: pickedEntry.score,
     trigger: picked.trigger,
     matchType: pickedEntry.matchType || "",
-    triggerLength: pickedEntry.triggerLength || normalizeLearnText(picked.trigger).length
+    triggerLength: pickedEntry.triggerLength || normalizeLearnText(picked.trigger).length,
+    allLinesRecent: allLinesRecent  // 모든 답변이 최근 사용된 경우 표시
   });
 }
 
@@ -2217,6 +2220,20 @@ async function getUnifiedCharacterChatResponse(text, options = {}) {
   const learnedIsShortPartial = !!(learnedResp && learnedResp.matchType !== "exact" && Number(learnedResp.triggerLength || 0) <= 2);
   const builtinLooksReliable = !!(builtinResp && builtinResp.line && !isGenericUnknownBuiltinResponse(builtinResp));
   if (exactLearnedMatch && learnedIsExact && learnedResp.line && repeatedInputCount <= 0) {
+    // 시트 답변이 1개뿐이고 최근에 이미 사용됐으면 → continuity(내장 패턴)로 보완
+    if (learnedResp.allLinesRecent && typeof getContinuityResponse === "function") {
+      // learnedReactions 빈 배열로 전달 → 내장 패턴만 사용해 다른 반응 유도
+      const altResp = getContinuityResponse(raw, []);
+      if (altResp && altResp.line && altResp.line !== learnedResp.line) {
+        // 50% 확률로 내장 패턴 답변 사용 (시트 답변과 번갈아 다양성 확보)
+        if (Math.random() < 0.5) {
+          rememberUserInput(raw);
+          rememberDialogLine(altResp.line, altResp.source || "continuity");
+          const safeEmo = (typeof EMO !== "undefined" && EMO && EMO[altResp.emotion]) ? altResp.emotion : "경청";
+          return { emotion: safeEmo, line: altResp.line };
+        }
+      }
+    }
     rememberUserInput(raw);
     rememberDialogLine(learnedResp.line, "learned");
     return { emotion: learnedResp.emotion || "경청", line: learnedResp.line };

@@ -433,30 +433,35 @@ function initNotebookMenu() {
     var container = document.getElementById('boardListContainer');
     if (container) container.innerHTML = '<div style="color:#aaa;text-align:center;padding:24px;">불러오는 중...</div>';
 
-    if (typeof window.postToSheet !== 'function') {
+    // 랭킹과 동일하게 GET 방식으로 호출
+    // (Apps Script의 board_list 모드는 doGet에서 처리)
+    var gasUrl = (typeof window.SHEET_WRITE_URL === 'string' && window.SHEET_WRITE_URL)
+      ? window.SHEET_WRITE_URL
+      : (typeof SHEET_WRITE_URL === 'string' ? SHEET_WRITE_URL : '');
+
+    if (!gasUrl) {
       if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">연결 오류</div>';
       return;
     }
 
-    window.postToSheet({ mode: 'board_list' }).then(function (res) {
-      // postToSheet가 fetch Response 객체를 반환하므로 .json() 호출
-      if (res && typeof res.json === 'function') return res.json();
-      if (typeof res === 'string') return JSON.parse(res);
-      return res;
-    }).then(function (data) {
-      if (data && Array.isArray(data.items)) {
-        _allItems = data.items;
-      } else if (data && Array.isArray(data)) {
-        _allItems = data;
-      } else {
-        _allItems = [];
-      }
-      _page = 1;
-      renderPage();
-    }).catch(function (err) {
-      console.warn('[Board] 불러오기 실패:', err);
-      if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">불러오기 실패</div>';
-    });
+    fetch(gasUrl + '?mode=board_list')
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (data && Array.isArray(data.items)) {
+          _allItems = data.items;
+        } else if (data && Array.isArray(data)) {
+          _allItems = data;
+        } else if (data && data.list && Array.isArray(data.list)) {
+          _allItems = data.list;
+        } else {
+          _allItems = [];
+        }
+        _page = 1;
+        renderPage();
+      }).catch(function (err) {
+        console.warn('[Board] 불러오기 실패:', err);
+        if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">불러오기 실패</div>';
+      });
   }
 
   // 버튼 핸들러 등록
