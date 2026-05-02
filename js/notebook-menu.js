@@ -397,8 +397,8 @@ function initNotebookMenu() {
       container.innerHTML = slice.map(function (item, i) {
         return [
           '<div class="board-item" style="padding:10px 8px;border-bottom:1px solid #eee;cursor:pointer;" data-idx="' + (start + i) + '">',
-          '  <div style="font-weight:600;font-size:14px;">' + escHtml(item.title || '(제목없음)') + '</div>',
-          '  <div style="font-size:12px;color:#888;margin-top:2px;">' + escHtml(item.author || '') + ' · ' + escHtml(item.date || '') + '</div>',
+          '  <div style="font-weight:600;font-size:14px;">' + escHtml(item.title || item.subject || item.제목 || '(제목없음)') + '</div>',
+          '  <div style="font-size:12px;color:#888;margin-top:2px;">' + escHtml(item.author || item.writer || item.name || item.이름 || '') + ' · ' + escHtml(item.created_at || item.date || item.날짜 || '') + '</div>',
           '</div>'
         ].join('');
       }).join('');
@@ -413,9 +413,9 @@ function initNotebookMenu() {
           if (hint) {
             hint.classList.remove('hidden');
             hint.innerHTML = [
-              '<div style="font-weight:700;font-size:15px;margin-bottom:6px;">' + escHtml(item.title || '') + '</div>',
-              '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + escHtml(item.author || '') + ' · ' + escHtml(item.date || '') + '</div>',
-              '<div style="font-size:14px;line-height:1.6;white-space:pre-wrap;">' + escHtml(item.content || '') + '</div>'
+              '<div style="font-weight:700;font-size:15px;margin-bottom:6px;">' + escHtml(item.title || item.subject || item.제목 || '') + '</div>',
+              '<div style="font-size:12px;color:#888;margin-bottom:8px;">' + escHtml(item.author || item.writer || item.name || item.이름 || '') + ' · ' + escHtml(item.created_at || item.date || item.날짜 || '') + '</div>',
+              '<div style="font-size:14px;line-height:1.6;white-space:pre-wrap;">' + escHtml(item.content || item.body || item.내용 || '') + '</div>'
             ].join('');
           }
         });
@@ -433,8 +433,7 @@ function initNotebookMenu() {
     var container = document.getElementById('boardListContainer');
     if (container) container.innerHTML = '<div style="color:#aaa;text-align:center;padding:24px;">불러오는 중...</div>';
 
-    // 랭킹과 동일하게 GET 방식으로 호출
-    // (Apps Script의 board_list 모드는 doGet에서 처리)
+    // 구버전과 동일한 방식: SHEET_WRITE_URL(=SHEET_CSV_URL)에 GET + 캐시버스터
     var gasUrl = (typeof window.SHEET_WRITE_URL === 'string' && window.SHEET_WRITE_URL)
       ? window.SHEET_WRITE_URL
       : (typeof SHEET_WRITE_URL === 'string' ? SHEET_WRITE_URL : '');
@@ -444,23 +443,30 @@ function initNotebookMenu() {
       return;
     }
 
-    fetch(gasUrl + '?mode=board_list')
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data && Array.isArray(data.items)) {
-          _allItems = data.items;
-        } else if (data && Array.isArray(data)) {
-          _allItems = data;
-        } else if (data && data.list && Array.isArray(data.list)) {
-          _allItems = data.list;
-        } else {
-          _allItems = [];
-        }
+    var sep = gasUrl.indexOf('?') >= 0 ? '&' : '?';
+    var url = gasUrl + sep + 'mode=board_list&t=' + Date.now();
+
+    fetch(url)
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(json) {
+        // 구버전과 동일: json.data 배열 우선, 없으면 다른 형태도 허용
+        var rows = [];
+        if (Array.isArray(json.data))  rows = json.data;
+        else if (Array.isArray(json.items)) rows = json.items;
+        else if (Array.isArray(json.list))  rows = json.list;
+        else if (Array.isArray(json))       rows = json;
+
+        // 최신 글이 위에 오도록 역순
+        _allItems = rows.slice().reverse();
         _page = 1;
         renderPage();
-      }).catch(function (err) {
+      })
+      .catch(function(err) {
         console.warn('[Board] 불러오기 실패:', err);
-        if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">불러오기 실패</div>';
+        if (container) container.innerHTML = '<div style="color:#f00;text-align:center;padding:24px;">불러오기 실패. 네트워크나 Apps Script 설정을 확인해주세요.</div>';
       });
   }
 
