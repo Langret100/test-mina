@@ -458,6 +458,10 @@ function setCurrentCharacter(key) {
   } catch (e) {
     // 저장 실패는 무시
   }
+  // 캐릭터 변경 이벤트 발행 → fcm-push.js가 DB의 char_name/char_icon 갱신
+  try {
+    window.dispatchEvent(new CustomEvent("ghost:character-changed", { detail: { key: key, name: ch.name } }));
+  } catch (_ce) {}
   // AR 카메라가 열려 있다면, 거기에도 캐릭터 변경을 반영
   try {
     if (typeof window.__updateARCharacterSprite === "function") {

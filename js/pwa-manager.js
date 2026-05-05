@@ -10,26 +10,46 @@
 (function () {
   if (window.PwaManager) return;
 
-  // 루트 기준 절대경로 — games/ 등 하위 폴더에서도 올바르게 등록됨
-  var _root = location.pathname.replace(/\/[^\/]*$/, '/').replace(/\/games\/.*/, '/').replace(/\/[^\/]+\.[^\/]+$/, '/');
-  var SW_PATH = _root + "sw.js";
-  var SW_SCOPE = _root;
+  // 루트(index.html)에서 로드되는 경우 ./sw.js, games/ 하위이면 ../sw.js 자동 선택
+  var SW_PATH = location.pathname.indexOf("/games/") > -1 ? "../sw.js" : "./sw.js";
   var LS_UNREAD = "ghostUnreadCounts_v1";  // { roomId: count }
   var swReg = null;
   var deferredPrompt = null; // beforeinstallprompt 이벤트
 
-  /* ── Service Worker 등록 ── */
+  /* ── Service Worker 등록 ──
+   * games/ 하위에서 ../sw.js 등록 시 scope 충돌 방지:
+   * 이미 등록된 SW가 있으면 재사용, 없으면 scope 없이 등록
+   */
   function registerSW() {
     if (!("serviceWorker" in navigator)) return Promise.resolve(null);
-    return navigator.serviceWorker.register(SW_PATH, { scope: SW_SCOPE })
-      .then(function (reg) {
-        swReg = reg;
-        return reg;
-      })
-      .catch(function (e) {
-        console.warn("[PWA] SW 등록 실패:", e.message || e);
-        return null;
-      });
+    return navigator.serviceWorker.getRegistrations().then(function (regs) {
+      for (var i = 0; i < regs.length; i++) {
+        var r = regs[i];
+        var sw = r.active || r.installing || r.waiting;
+        if (sw && sw.scriptURL && sw.scriptURL.indexOf("sw.js") > -1) {
+          swReg = r;
+          console.log("[PWA] 기존 SW 재사용:", sw.scriptURL);
+          return r;
+        }
+      }
+      // 기존 SW 없으면 등록 시도
+      var _swScope = (function() {
+        try { return new URL("../", location.href).pathname; } catch(e) { return "/"; }
+      })();
+      return navigator.serviceWorker.register(SW_PATH, { scope: _swScope })
+        .then(function (reg) {
+          swReg = reg;
+          console.log("[PWA] SW 신규 등록:", reg.scope);
+          return reg;
+        })
+        .catch(function (e) {
+          console.warn("[PWA] SW 등록 실패:", e.message || e);
+          return null;
+        });
+    }).catch(function (e) {
+      console.warn("[PWA] SW 조회 실패:", e.message || e);
+      return null;
+    });
   }
 
   /* ── 홈화면 추가 가능 여부 ── */
@@ -195,8 +215,16 @@
     var counts = getUnreadCounts();
     delete counts[roomId];
     saveUnreadCounts(counts);
+    var total = getTotalUnread();
     _applyBadge();
     _updateRoomBadgeUI(roomId, 0);
+    // SW IndexedDB 카운트를 항상 localStorage 합계로 동기화 (부분 읽기 포함)
+    if (total === 0) {
+      _postToSW({ type: "CLEAR_BADGE" });
+      try { if (navigator.clearAppBadge) navigator.clearAppBadge(); } catch (e) {}
+    } else {
+      _postToSW({ type: "SET_BADGE", count: total });
+    }
   }
 
   /* 전체 미확인 수 합산 */
@@ -205,24 +233,59 @@
     return Object.keys(counts).reduce(function (sum, k) { return sum + (counts[k] || 0); }, 0);
   }
 
+  /* SW에 메시지 전송 (controller 우선, swReg.active fallback) */
+  function _postToSW(msg) {
+    try {
+      var sw = (navigator.serviceWorker && navigator.serviceWorker.controller)
+               || (swReg && swReg.active)
+               || null;
+      if (sw) sw.postMessage(msg);
+    } catch (e) {}
+  }
+
+  /* SW / relay 메시지 공통 처리 */
+  function _handleSwMessage(d) {
+    try {
+      if (!d) return;
+      if (d.type === "FCM_PUSH_RECEIVED" && d.roomId) {
+        var counts = getUnreadCounts();
+        counts[d.roomId] = (counts[d.roomId] || 0) + 1;
+        saveUnreadCounts(counts);
+        _updateRoomBadgeUI(d.roomId, counts[d.roomId]);
+        _applyBadge();
+      }
+      if (d.type === "FCM_OPEN_ROOM" && d.roomId) {
+        // ghost:open-room 이벤트는 수신자가 없음
+        // games/ iframe의 social-messenger.js가 FCM_OPEN_ROOM을 직접 처리하므로
+        // iframe을 찾아 postMessage로 전달
+        try {
+          var gameFrame = document.getElementById("gameFrame");
+          if (gameFrame && gameFrame.contentWindow) {
+            gameFrame.contentWindow.postMessage({ type: "FCM_OPEN_ROOM", roomId: d.roomId }, "*");
+          }
+        } catch (_eFrame) {}
+      }
+    } catch (e) {}
+  }
+
   /* 앱 배지 실제 적용 */
   function _applyBadge() {
     var total = getTotalUnread();
-    // 1) SW를 통한 앱 배지 (PWA 설치 상태일 때 앱 아이콘에 표시)
-    if (swReg && swReg.active) {
-      try {
-        swReg.active.postMessage({ type: "SET_BADGE", count: total });
-      } catch (e) {}
-    }
-    // 2) 직접 API (일부 브라우저)
+    // 1) 직접 API - 가장 우선 (SW 없어도 동작, Chrome 81+/Android Chrome 지원)
     try {
       if (navigator.setAppBadge) {
-        total > 0 ? navigator.setAppBadge(total) : navigator.clearAppBadge();
+        if (total > 0) {
+          navigator.setAppBadge(total).catch(function(){});
+        } else {
+          navigator.clearAppBadge().catch(function(){});
+        }
       }
     } catch (e) {}
-    // 3) 탭 타이틀에도 표시
+    // 2) SW를 통한 배지 (fallback - 일부 브라우저는 SW 경유 필요)
+    _postToSW({ type: "SET_BADGE", count: total });
+    // 3) 탭 타이틀에도 표시 (모든 환경)
     try {
-      var base = "마이메신저";
+      var base = "마이파이";
       document.title = total > 0 ? ("(" + total + ") " + base) : base;
     } catch (e) {}
   }
@@ -264,6 +327,35 @@
     // Service Worker 등록
     registerSW().then(function () {
       restoreAllBadgeUI();
+      // SW 등록 완료 후 배지 재동기화
+      setTimeout(function () {
+        _applyBadge();
+        // FCM 토큰 초기화 (login.js가 없는 환경 대응)
+        // ghostUser가 아직 안 세팅됐을 수 있으므로 3회 재시도
+        var _fcmTries = 0;
+        function _tryFcmInit() {
+          _fcmTries++;
+          try {
+            var userId = "";
+            try {
+              if (window.currentUser && window.currentUser.user_id) {
+                userId = String(window.currentUser.user_id);
+              } else {
+                var raw = localStorage.getItem("ghostUser");
+                if (raw) { var u = JSON.parse(raw); if (u && u.user_id) userId = String(u.user_id); }
+              }
+            } catch (e) {}
+
+            if (userId && window.FcmPush && typeof window.FcmPush.init === "function") {
+              window.FcmPush.init(userId);
+              return; // 성공 시 재시도 중단
+            }
+          } catch (e) {}
+          // userId 없으면 최대 3회, 2초 간격 재시도
+          if (_fcmTries < 3) setTimeout(_tryFcmInit, 2000);
+        }
+        setTimeout(_tryFcmInit, 500);
+      }, 1000);
     });
 
     // beforeinstallprompt 캐치 (Android Chrome 등)
@@ -294,6 +386,36 @@
       try {
         var roomId = ev.detail && ev.detail.roomId ? ev.detail.roomId : "";
         if (roomId) clearUnread(roomId);
+      } catch (e) {}
+    });
+
+    // 앱이 백그라운드에서 포그라운드로 복귀할 때 배지 재동기화
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") {
+        // 현재 보고 있는 방의 배지가 쌓였으면 자동 초기화
+        try {
+          var activeRoom = localStorage.getItem("ghostActiveRoomId");
+          if (activeRoom) clearUnread(activeRoom);
+        } catch (e) {}
+        _applyBadge();
+      }
+    });
+
+    // SW로부터 FCM 푸시 수신 알림 (백그라운드 → 포그라운드 복귀 시)
+    // 직접 SW 메시지 (최상위 페이지에서 실행될 때)
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener("message", function (ev) {
+        _handleSwMessage(ev.data);
+      });
+    }
+    // iframe 안에서 parent→child postMessage relay (미나는 social-messenger.js가 직접 SW 메시지 처리)
+    window.addEventListener("message", function (ev) {
+      try {
+        var d = ev && ev.data;
+        if (!d || typeof d !== "object") return;
+        // FCM 관련 타입만 처리, 나머지는 무시
+        if (d.type !== "FCM_PUSH_RECEIVED" && d.type !== "FCM_OPEN_ROOM") return;
+        _handleSwMessage(d);
       } catch (e) {}
     });
   }

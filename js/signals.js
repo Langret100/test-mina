@@ -13,7 +13,6 @@
   var _myTsMap = {};     // roomId -> 내가 마지막 보낸 ts
   var _seenTsMap = {};   // roomId -> 내가 마지막 확인한 ts
   var _attachedHandlers = []; // { getMyId, onNotify, onSignal }
-  var _subscribedRooms = {}; // roomId -> true
 
   function setDb(db) { _db = db; }
 
@@ -34,7 +33,39 @@
     if (!db || !roomId) return;
     try {
       var safe = String(roomId).replace(/[.#$\[\]]/g, '_');
-      db.ref('signals/' + safe).push(Object.assign({}, payload, { ts: Date.now() }))
+      var _p = Object.assign({}, payload);
+      if (!_p.ts) _p.ts = Date.now(); // ts가 이미 있으면 유지 (markMyTs와 일치 보장)
+      db.ref('signals/' + safe).push(_p)
+        .catch(function () {});
+      // 메시지 전송 시 이 방의 오래된 신호 정리 (10분 초과)
+      _pruneSignals(safe);
+    } catch (e) {}
+  }
+
+  /* 오래된 신호 정리 — 10분(600초) 초과 항목 삭제 */
+  var _pruneThrottle = {}; // roomId -> lastPruneTs
+  function _pruneSignals(safeRoomId) {
+    var now = Date.now();
+    // 방당 최대 1분에 1번만 실행
+    if (_pruneThrottle[safeRoomId] && now - _pruneThrottle[safeRoomId] < 60000) return;
+    _pruneThrottle[safeRoomId] = now;
+
+    var db = getDb();
+    if (!db) return;
+    var cutoff = now - 10 * 60 * 1000; // 10분 전
+    try {
+      db.ref('signals/' + safeRoomId)
+        .orderByChild('ts')
+        .endAt(cutoff)
+        .once('value')
+        .then(function (snap) {
+          if (!snap.exists()) return;
+          var updates = {};
+          snap.forEach(function (child) {
+            updates[child.key] = null; // 삭제
+          });
+          db.ref('signals/' + safeRoomId).update(updates).catch(function () {});
+        })
         .catch(function () {});
     } catch (e) {}
   }
@@ -45,6 +76,9 @@
     if (!db || !roomId) return;
     var safe = String(roomId).replace(/[.#$\[\]]/g, '_');
     if (_listeners[safe]) return; // 이미 구독 중
+
+    // 구독 시작 시 오래된 신호 정리 (앱 초기화 1회)
+    _pruneSignals(safe);
 
     var since = Date.now() - 5000; // 최근 5초 내 신호만
     var ref = db.ref('signals/' + safe).orderByChild('ts').startAt(since);
@@ -69,8 +103,21 @@
             var seenTs = _seenTsMap[roomId] || 0;
             if (val.ts <= seenTs) return;
 
+            // chat 종류 신호 → onMessage로 전달 (실시간 메시지 중계)
+            if (h.onMessage && String(val.kind || 'chat') === 'chat') {
+              h.onMessage({
+                roomId:   roomId,
+                mid:      val.mid || '',
+                user_id:  val.user_id || '',
+                nickname: val.nickname || '익명',
+                text:     val.text || '',
+                ts:       val.ts,
+                kind:     val.kind || 'chat'
+              });
+            }
+
             if (h.onNotify) {
-              h.onNotify({ roomId: roomId, ts: val.ts, signal: val });
+              h.onNotify({ roomId: roomId, ts: val.ts, user_id: val.user_id || '', signal: val });
             }
             if (h.onSignal) {
               h.onSignal(roomId, val);
@@ -81,7 +128,6 @@
     });
 
     _listeners[safe] = { ref: ref, handler: handler };
-    _subscribedRooms[roomId] = true;
   }
 
   /* 방 목록 동기화 */

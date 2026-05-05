@@ -61,50 +61,12 @@
     return 0;
   }
 
-  function __smSigOf(user_id, text) {
-    return String(user_id || "") + "|" + String(text || "").trim();
-  }
+  // ---- end fix28 helpers (build/tryAttach 함수는 미사용으로 제거됨) ----
 
-  function __smBuildRelayMidIndex(list) {
-    var idx = {};
-    try {
-      (list || []).forEach(function (m) {
-        if (!m || !m.mid) return;
-        var ts = __smParseTs(m.ts || 0);
-        var b = Math.floor(ts / 5000);
-        var sig = __smSigOf(m.user_id, m.text);
-        for (var d = -2; d <= 2; d++) {
-          var k = sig + "|" + String(b + d);
-          if (!idx[k]) idx[k] = String(m.mid);
-        }
-      });
-    } catch (e) {}
-    return idx;
-  }
-
-  function __smTryAttachMidFromRelayIndex(m, idx) {
-    try {
-      if (!m || m.mid) return;
-      var ts = __smParseTs(m.ts || 0);
-      var b = Math.floor(ts / 5000);
-      var sig = __smSigOf(m.user_id, m.text);
-      var deltas = [0, -1, 1, -2, 2, -3, 3];
-      for (var i = 0; i < deltas.length; i++) {
-        var k = sig + "|" + String(b + deltas[i]);
-        if (idx[k]) { m.mid = idx[k]; return; }
-      }
-    } catch (e) {}
-  }
-  // ---- end fix28 helpers ----
-
-var __loadSeq = 0; // 방별 최근글 요청 순번(느린 응답 섞임 방지)
 // 대화방(rooms)
   var currentRoomId = null;
   var currentRoomMeta = null;
   
-  var listenStartedAt = Date.now();
-
-
 
 // ------------------------------------------------------------
 // (통합) + 버튼 첨부 메뉴 / 알림음 모듈
@@ -209,51 +171,41 @@ menu.appendChild(makeItem("📎 파일 첨부", function () { menu._fire && menu
 })();
 
 var NotifySound = (function () {
-  var ctx = null;
-  var masterGain = null;
-  var keepAliveOsc = null;
+  /* ── 포그라운드 알람음 모듈 ─────────────────────────────────
+   * ⚠️ 이 모듈은 앱/탭이 열려있을 때(포그라운드)에만 작동합니다.
+   *    앱이 꺼진 상태(백그라운드/꺼짐)의 알림음은 OS가 재생하며,
+   *    Web Notification API는 커스텀 sound 지정을 지원하지 않습니다.
+   *    → 꺼진 상태 알림 = OS 시스템 기본 알림음 (변경 불가)
+   *
+   * - HTML Audio 엘리먼트로 sounds/page.mp3 재생
+   * - playDdiring()은 앱이 열린 상태에서 새 글 도착 시 호출됨
+   */
+  var _audioEl = null;
   var enabled = false;
   var bound = false;
-
-  function ensureContext() {
-    if (ctx) return ctx;
-    var AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
-    masterGain = ctx.createGain();
-    masterGain.gain.value = 1.0;
-    masterGain.connect(ctx.destination);
-    return ctx;
+  function ensureAudio() {
+    if (_audioEl) return _audioEl;
+    try {
+      _audioEl = new Audio();
+      _audioEl.src    = "../sounds/page.mp3";
+      _audioEl.volume = 1.0;
+      _audioEl.preload = "auto";
+    } catch (e) { _audioEl = null; }
+    return _audioEl;
   }
 
-  function tryResume() {
+  function tryVibrate() {
     try {
-      var c = ensureContext();
-      if (!c) return;
-      if (c.state === "suspended") c.resume();
-    } catch (e) {}
-  }
-
-  function startKeepAlive() {
-    try {
-      var c = ensureContext();
-      if (!c || !masterGain) return;
-      if (keepAliveOsc) return;
-      keepAliveOsc = c.createOscillator();
-      var g = c.createGain();
-      g.gain.value = 0.00001;
-      keepAliveOsc.frequency.value = 1;
-      keepAliveOsc.connect(g);
-      g.connect(masterGain);
-      keepAliveOsc.start();
+      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
     } catch (e) {}
   }
 
   function armByUserGesture() {
     if (enabled) return;
-    tryResume();
     enabled = true;
-    startKeepAlive();
+    // 오디오 엘리먼트 미리 로드
+    var el = ensureAudio();
+    if (el) { try { el.load(); } catch (e) {} }
   }
 
   function bindUserGesture(target) {
@@ -275,77 +227,63 @@ var NotifySound = (function () {
     target.addEventListener("touchstart", once, { passive: true });
     target.addEventListener("mousedown", once, { passive: true });
     target.addEventListener("click", once, { passive: true });
-
-    document.addEventListener("visibilitychange", function () {
-      if (!enabled) return;
-      tryResume();
-    });
   }
 
+  // ── MP3 알람음 재생 (사용자 제스처 후에만 재생 가능)
   function playDdiring() {
-    if (!enabled) return false;
-    var c = ensureContext();
-    if (!c || !masterGain) return false;
-    tryResume();
-
-    var now = c.currentTime;
-    var scheduleTone = function (freq, t, dur) {
-      var osc = c.createOscillator();
-      var g = c.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(freq, t);
-
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.8, t + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-
-      osc.connect(g);
-      g.connect(masterGain);
-      osc.start(t);
-      osc.stop(t + dur + 0.02);
-    };
-
-    scheduleTone(880, now + 0.00, 0.18);
-    scheduleTone(1320, now + 0.20, 0.22);
-    return true;
+    if (!enabled) {
+      // 아직 제스처 없음 → 재생 시도는 하되 실패해도 warn 없이 조용히 처리
+      armByUserGesture(); // 강제 arm 시도 (일부 환경에서 작동)
+    }
+    var el = ensureAudio();
+    if (!el) return false;
+    try {
+      el.currentTime = 0;
+      var p = el.play();
+      if (p && typeof p.catch === "function") {
+        p.catch(function (err) {
+          console.warn("[알람] MP3 재생 실패:", err.message || err);
+        });
+      }
+      return true;
+    } catch (e) {
+      console.warn("[알람] 재생 오류:", e);
+      return false;
+    }
   }
 
-  return { bindUserGesture: bindUserGesture, playDdiring: playDdiring };
-})()
+  return { bindUserGesture: bindUserGesture, playDdiring: playDdiring, tryVibrate: tryVibrate };
+})();
 
 var NotifySetting = (function () {
-  // 알림(띠리링 + 백그라운드 시스템 알림 시도) ON/OFF 설정
-  // - 기본값: 켜짐 (KEY가 없거나 "1"이면 켜짐, "0"이면 꺼짐)
-  // - 시스템 알림은 권한(granted)일 때 + 화면이 보이지 않을 때(document.hidden)만 "시도"합니다.
-  // - Service Worker / Push 는 사용하지 않습니다(앱이 실행 중일 때만 동작).
-  var KEY = "mypai_notify_enabled";
+  // ── 알림 모드: "sound"(알람소리+진동) | "vibrate"(진동만) | "mute"(무음, 배지만)
+  var MODE_KEY = "mypai_notify_mode_v2";
 
   function getPermission() {
     if (!("Notification" in window)) return "unsupported";
     try { return Notification.permission || "default"; } catch (e) { return "default"; }
   }
 
-  function isEnabled() {
+  function getMode() {
     try {
-      var v = localStorage.getItem(KEY);
-      return v !== "0"; // 기본 ON
-    } catch (e) {
-      return true;
-    }
+      var v = localStorage.getItem(MODE_KEY);
+      if (v === "vibrate" || v === "mute" || v === "sound") return v;
+    } catch (e) {}
+    return "sound"; // 기본값
   }
 
-  function setEnabled(v) {
-    try { localStorage.setItem(KEY, v ? "1" : "0"); } catch (e) {}
+  function setMode(m) {
+    try { localStorage.setItem(MODE_KEY, m); } catch (e) {}
   }
+
+  /* 하위 호환: 알림이 완전히 꺼진 상태(mute)가 아니면 "활성"으로 간주 */
+  function isEnabled() { return getMode() !== "mute"; }
 
   function getMenuLabel() {
-    var perm = getPermission();
-    var on = isEnabled();
-
-    if (perm === "denied") return on ? "🔔 알림: 켜짐(차단됨)" : "🔕 알림: 꺼짐(차단됨)";
-    if (perm === "unsupported") return on ? "🔔 알림: 켜짐(지원안함)" : "🔕 알림: 꺼짐(지원안함)";
-    if (perm === "default" && on) return "🔔 알림: 켜짐(권한 필요)";
-    return on ? "🔔 알림: 켜짐" : "🔕 알림: 꺼짐";
+    var m = getMode();
+    if (m === "sound")   return "🔔 알림: 소리";
+    if (m === "vibrate") return "📳 알림: 진동";
+    return "🔕 알림: 꺼짐";
   }
 
   function requestPermission() {
@@ -361,59 +299,222 @@ var NotifySetting = (function () {
   }
 
   function toggle(showStatus) {
-    var next = !isEnabled();
-    setEnabled(next);
+    var existing = document.getElementById("notifyModeSheet");
+    if (existing) { existing.remove(); return Promise.resolve(getMode()); }
 
-    if (!next) {
-      showStatus && showStatus("알림을 껐어요.");
-      return Promise.resolve(false);
-    }
+    var overlay = document.createElement("div");
+    overlay.id = "notifyModeSheet";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.45);";
 
-    // 켜는 경우: 시스템 알림은 권한이 있으면 백그라운드에서만 시도
-    var perm = getPermission();
-    if (perm === "default") {
-      // 사용자가 "알림 켜기"를 눌렀을 때만 권한 요청(자동 팝업 방지)
-      showStatus && showStatus("백그라운드 알림을 쓰려면 권한이 필요해요.");
-      return requestPermission().then(function (p) {
-        if (p === "granted") showStatus && showStatus("알림을 켰어요.");
-        else if (p === "denied") showStatus && showStatus("브라우저 설정에서 알림 허용이 필요해요.");
-        else showStatus && showStatus("알림 권한이 아직 없어요.");
-        return true;
-      });
-    }
+    var current = getMode();
+    var opts = [
+      { label: "🔔 소리", sub: "알람음 + 진동", val: "sound", icon: "🔔" },
+      { label: "📳 진동만", sub: "소리 없이 진동", val: "vibrate", icon: "📳" },
+      { label: "🔕 끄기", sub: "배지만 표시", val: "mute", icon: "🔕" }
+    ];
 
-    if (perm === "denied") {
-      showStatus && showStatus("알림은 켜졌지만, 시스템 알림은 차단돼 있어요.");
-      return Promise.resolve(true);
-    }
+    var btns = opts.map(function (o) {
+      var isOn = (o.val === current);
+      return [
+        "<button data-val='" + o.val + "' style='",
+        "width:100%;padding:14px 16px;border:0;border-radius:12px;",
+        "background:" + (isOn ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.06)") + ";",
+        "color:" + (isOn ? "#a5b4fc" : "#e2e8f0") + ";",
+        "font-size:15px;font-weight:" + (isOn ? "700" : "400") + ";",
+        "cursor:pointer;display:flex;align-items:center;gap:12px;text-align:left;",
+        "border:" + (isOn ? "1.5px solid #6366f1" : "1.5px solid transparent") + ";",
+        "'>",
+        "<span style='font-size:22px;'>" + o.icon + "</span>",
+        "<span><span style='display:block;'>" + o.label + "</span>",
+        "<span style='font-size:12px;opacity:0.6;'>" + o.sub + "</span></span>",
+        "</button>"
+      ].join("");
+    }).join("");
 
-    showStatus && showStatus("알림을 켰어요.");
-    return Promise.resolve(true);
+    overlay.innerHTML = [
+      "<div style='width:100%;max-width:420px;background:#1e293b;",
+      "border-radius:24px 24px 0 0;padding:20px 16px 36px;",
+      "display:flex;flex-direction:column;gap:10px;box-shadow:0 -4px 40px rgba(0,0,0,0.4);'>",
+      "<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;'>",
+      "<span style='font-size:16px;font-weight:800;color:#f1f5f9;'>알림 설정</span>",
+      "<button id='notifyModeCloseBtn' style='border:0;background:rgba(255,255,255,0.1);color:#fff;",
+      "font-size:16px;cursor:pointer;width:32px;height:32px;border-radius:8px;'>✕</button>",
+      "</div>",
+      "<div style='display:flex;flex-direction:column;gap:8px;'>",
+      btns,
+      "</div>",
+      "</div>"
+    ].join("");
+
+    overlay.addEventListener("click", function (ev) {
+      var val = ev.target.closest && ev.target.closest("[data-val]");
+      if (val) {
+        var m = val.getAttribute("data-val");
+        setMode(m);
+        overlay.remove();
+        // 알람소리 선택 시 권한 확인
+        if (m !== "mute") {
+          var perm = getPermission();
+          if (perm === "default") {
+            showStatus && showStatus("백그라운드 알림을 쓰려면 권한이 필요해요.");
+            requestPermission().then(function (p) {
+              if (p === "denied") showStatus && showStatus("브라우저에서 알림을 허용해 주세요.");
+            });
+          }
+        }
+        if (window._notifyMenuBtn) {
+          window._notifyMenuBtn.textContent = getMenuLabel();
+        }
+        // FCM DB의 notify_mode 동기화 (iframe이므로 parent 경유)
+        try {
+          var _fp = (window.parent && window.parent.FcmPush) || window.FcmPush;
+          if (_fp && typeof _fp.refreshRooms === "function") _fp.refreshRooms();
+        } catch (e) {}
+        return;
+      }
+      if (ev.target === overlay || ev.target.id === "notifyModeCloseBtn") overlay.remove();
+    });
+
+    document.body.appendChild(overlay);
+    return Promise.resolve(getMode());
   }
 
-  function maybeShow(msg) {
-    if (!isEnabled()) return;
-    if (getPermission() !== "granted") return;
+  /* ── 캐릭터 정보 헬퍼 (parent.CHARACTERS 기반 동적 조회)
+     - 하드코딩 없이 core.js의 CHARACTERS 정의를 그대로 재사용
+     - 새 캐릭터가 추가되어도 이 코드 수정 불필요
+     - 우선순위: parent frame → localStorage → 기본값 "mina"
+  ─────────────────────────────────────────────────────────── */
 
-    // 보이는 상태에서는 시스템 알림 생략(중복 방지)
+  function getCharKey() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.currentCharacterKey) {
+        return String(window.parent.currentCharacterKey);
+      }
+    } catch (e) {}
+    try {
+      var ck = localStorage.getItem("ghostCurrentCharacter");
+      if (ck) return String(ck);
+    } catch (e) {}
+    return "mina";
+  }
+
+  function getCharName() {
+    try {
+      // parent.currentCharacterName: core.js가 항상 최신값 유지
+      if (window.parent && window.parent !== window && window.parent.currentCharacterName) {
+        return String(window.parent.currentCharacterName);
+      }
+      // parent.CHARACTERS에서 직접 읽기 (fallback)
+      var key = getCharKey();
+      var chars = window.parent && window.parent.CHARACTERS;
+      if (chars && chars[key] && chars[key].name) return String(chars[key].name);
+    } catch (e) {}
+    return "미나";
+  }
+
+  /* ── 캐릭터 아이콘: parent.CHARACTERS[key].basePath + "기본대기1.png"
+     모든 캐릭터 폴더에 기본대기1.png가 있으므로 경로만 다르게 */
+  function getCharIcon() {
+    try {
+      var key = getCharKey();
+      var basePath = "images/emotions/"; // 기본값(미나)
+      try {
+        var chars = window.parent && window.parent.CHARACTERS;
+        if (chars && chars[key] && chars[key].basePath) {
+          basePath = chars[key].basePath;
+        }
+      } catch (ep) {}
+      // Notification API는 절대경로 필요 → games/ 기준 상대경로를 절대경로로 변환
+      var rel = "../" + basePath + "기본대기1.png";
+      return new URL(rel, location.href).href;
+    } catch (e) {
+      return new URL("../images/emotions/기본대기1.png", location.href).href;
+    }
+  }
+
+  /* ── TTS로 알림 읽어주기 */
+  function speakNotify(charName) {
+    try {
+      var text = charName + "에게 새 글이 있어요";
+      // TtsVoice 모듈 우선: games/ iframe 안에서는 parent에서 접근
+      var tts = null;
+      try {
+        if (window.parent && window.parent !== window && window.parent.TtsVoice) {
+          tts = window.parent.TtsVoice;
+        }
+      } catch (e1) {}
+      if (!tts && window.TtsVoice) tts = window.TtsVoice;
+      if (tts && typeof tts.speak === "function") {
+        tts.speak(text);
+        return;
+      }
+      // Web Speech API 직접 사용 (fallback)
+      var synth = (window.parent && window.parent.speechSynthesis) || window.speechSynthesis;
+      if (synth && window.SpeechSynthesisUtterance) {
+        var u = new SpeechSynthesisUtterance(text);
+        u.lang = "ko-KR";
+        u.rate = 1.1;
+        synth.cancel();
+        synth.speak(u);
+      }
+    } catch (e) {}
+  }
+
+  /* ── 포그라운드 메시지 수신 시 알림 처리 */
+  function handleIncoming(msg) {
+    var mode = getMode();
+    if (mode === "mute") return; // 무음: 배지만 (호출부에서 처리)
+
+    var charName = getCharName();
+
+    if (mode === "sound") {
+      // 소리 + 진동 + TTS
+      NotifySound.playDdiring();
+      NotifySound.tryVibrate();
+      // TTS: "미나에게 새 글이 있어요"
+      speakNotify(charName);
+    } else if (mode === "vibrate") {
+      // 진동만
+      NotifySound.tryVibrate();
+    }
+
+    // 백그라운드 시스템 알림 (포그라운드에서는 생략)
+    maybeShow(msg, charName);
+  }
+
+  function maybeShow(msg, charNameOpt) {
+    if (getMode() === "mute") return;
+    if (getPermission() !== "granted") return;
     try {
       if (typeof document !== "undefined" && document.visibilityState === "visible") return;
     } catch (e) {}
 
-    var title = "새 메시지";
-    var body = "새 메시지가 도착했어요.";
+    var charName = charNameOpt || getCharName();
+    // 알림 title = 캐릭터 이름 (마이파이 대신)
+    var title = charName;
+    var body = "새 글이 있어요 💬";
     try {
       var t = msg && msg.type || "text";
       var summary = "";
-      if (t === "image") summary = "사진";
-      else if (t === "file") summary = "파일";
-      else summary = (msg && msg.text) ? String(msg.text) : "메시지";
-      body = (msg && msg.nickname ? (msg.nickname + " : ") : "") + summary;
+      if (t === "image") summary = "사진을 보냈어요 📷";
+      else if (t === "file") summary = "파일을 보냈어요 📎";
+      else summary = (msg && msg.text) ? String(msg.text) : "새 메시지가 있어요";
+      // 보낸 사람 표시
+      var nick = (msg && msg.nickname) ? String(msg.nickname) : "";
+      body = nick ? (nick + " : " + summary) : summary;
       if (body.length > 80) body = body.slice(0, 77) + "...";
     } catch (e2) {}
 
+    // icon: 캐릭터 얼굴 이미지
+    var icon = getCharIcon();
+
     var opts = {
       body: body,
+      icon: icon,
+      badge: (function() {
+        try { return new URL("../images/icons/favicon-32x32.png", location.href).href; }
+        catch(e) { return "../images/icons/favicon-32x32.png"; }
+      })(),
       tag: "mypai-social-chat",
       renotify: true
     };
@@ -423,15 +524,15 @@ var NotifySetting = (function () {
 
   return {
     isEnabled: isEnabled,
+    getMode: getMode,
     getMenuLabel: getMenuLabel,
     toggle: toggle,
+    handleIncoming: handleIncoming,
     maybeShow: maybeShow
   };
 })();
 window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근용
 
-
-;
 
   function isEmojiOnlyText(text) {
     if (!text || typeof text !== "string") return false;
@@ -651,6 +752,7 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
 
           messages.push(msg2);
           messages.sort(function (a, b) { return (__smParseTs(a.ts) - __smParseTs(b.ts)); });
+          if (messages.length > MAX_BUFFER * 2) messages.splice(0, messages.length - MAX_BUFFER * 2);
           // _local 교체 시 renderAll(날짜구분선 재계산), 신규 메시지면 appendNewMessage
           if (wasLocal) {
             renderAll();
@@ -669,9 +771,8 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
           try {
             if (msg2.user_id && String(msg2.user_id) !== String(myId || "") &&
                 (Date.now() - subStartTs) > 1500) {
-              if (NotifySetting && NotifySetting.isEnabled && NotifySetting.isEnabled()) {
-                NotifySound.playDdiring();
-                if (NotifySetting.maybeShow) NotifySetting.maybeShow(msg2);
+              if (NotifySetting && NotifySetting.getMode && NotifySetting.getMode() !== "mute") {
+                NotifySetting.handleIncoming(msg2); // 모드에 따라 소리/진동/무음 처리
               }
             }
           } catch (eSound) {}
@@ -686,9 +787,10 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
                 window.RoomUnreadBadge.mark(msgRoomId, msg2.ts);
               }
             } catch (eBadge) {}
-            // 앱 아이콘 숫자 배지 (항상 - 앱 열려있어도 다른 방이면 표시)
+            // 앱 아이콘 숫자 배지 (항상 - 앱 열려있어도 다른 방이면 표시, iframe이므로 parent 경유)
             try {
-              if (window.PwaManager) window.PwaManager.incrementUnread(msgRoomId);
+              var _pwa2 = (window.parent && window.parent.PwaManager) || window.PwaManager;
+              if (_pwa2) _pwa2.incrementUnread(msgRoomId);
             } catch (ePwaBadge) {}
           }
         } catch (e) {}
@@ -730,8 +832,6 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
   // - 앱 시작 시 익명 로그인 자동 수행(사용자에게 구글 로그인 요구 X)
   // - init 이후 signInAnonymously() 1회 보장
   // ------------------------------------------------------------
-  var __anonAuthPromise = null;
-
   function ensureAnonAuth() {
     // 익명 Auth를 쓰지 않는 구성(Realtime DB를 "relay"로만 사용)
     // - Auth 관련 네트워크 호출(identitytoolkit/securetoken) 자체를 하지 않음
@@ -819,16 +919,6 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
     var m = (d.getMonth() + 1).toString().padStart(2, "0");
     var day = d.getDate().toString().padStart(2, "0");
     return y + "." + m + "." + day;
-  }
-
-  function appendDateSeparator(ts) {
-    if (!bodyEl) return;
-    var wrap = document.createElement("div");
-    wrap.className = "date-separator";
-    var span = document.createElement("span");
-    span.textContent = formatDateLabel(ts);
-    wrap.appendChild(span);
-    bodyEl.appendChild(wrap);
   }
 
   function appendMessage(msg) {
@@ -1120,14 +1210,11 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
      - 초기 로딩: 배치 처리 (100개를 한 번에 그림)
      - 새 메시지: appendMessage만 (전체 재렌더 안 함)
      ──────────────────────────────────────────────────────── */
-  var _renderBatchTimer = null;
-  var _lastRenderedCount = 0;
   var _lastRenderedDateKey = null; // 마지막으로 렌더된 날짜 key 추적
 
   /* 전체 재렌더 (방 전환 / 시트 폴백 등 전체 갱신 필요 시) */
   function renderAll() {
     if (!bodyEl) return;
-    _lastRenderedCount = 0;
     _lastRenderedDateKey = null;
     bodyEl.innerHTML = "";
     if (!messages || messages.length === 0) {
@@ -1160,7 +1247,6 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
       bodyEl = _orig;
     });
     bodyEl.appendChild(frag);
-    _lastRenderedCount = messages.length;
     bodyEl.scrollTop = bodyEl.scrollHeight;
   }
 
@@ -1220,19 +1306,9 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
       _lastRenderedDateKey = key;
     }
     appendMessage(msg);
-    _lastRenderedCount++;
   }
 
-  // loadRecentFromSheet: 제거됨
-  // 글은 Firebase에서만 로드. 시트는 백업 쓰기 전용.
-  // (Firebase가 비어있어도 시트 폴백 없음 - 데이터 정합성 보장)
-  function loadRecentFromSheet(roomId) { return; }
 
-
-
-  // signals 수신에 따라 현재 방의 최근글(30개)만 '짧게' 갱신 (속도/혼선 방지)
-  var __roomRefreshTimer = null;
-  
 
 function isVisitedRoomForNotify(roomId) {
   try {
@@ -1358,7 +1434,7 @@ function __applyRelayMessage(msgInfo) {
 
     // _local 교체 여부에 따라 renderAll or appendNewMessage
     var relayWasLocal = false;
-    for (var ri = messages.length - 2; ri >= 0; ri--) {
+    for (var ri = messages.length - 1; ri >= 0; ri--) {
       var rm = messages[ri];
       if (!rm) continue;
       if (m.mid && rm.mid && rm.mid === m.mid && (rm._local)) {
@@ -1377,14 +1453,7 @@ function __applyRelayMessage(msgInfo) {
   } catch (e) {}
 }
 
-function scheduleRoomRefresh(roomId) {
-    // Firebase 실시간 구독으로 대체됨 - 시트 재로딩 불필요
-    return;
-  }
 
-  // ── startListen: startFirebaseMsgListen으로 완전 통합, 더 이상 사용 안 함 ──
-  // 두 리스너가 동시에 같은 Firebase 경로를 구독해 메시지가 2개씩 렌더되는 문제 수정
-  function startListen() { return; }
 
   // logToSheet: 제거됨 (데드코드, 호출 없음)
 
@@ -1745,6 +1814,7 @@ onPickImage: async function () {
             } catch (e3) {}
             myId = null;
             myNickname = null;
+            clearChatView(); // 로그아웃 시 채팅 내용 지우기
             showStatus("로그아웃 되었어요.");
           }
         });
@@ -1943,6 +2013,8 @@ onPickImage: async function () {
     } catch (e) {
       console.warn("[messenger] 파일 시트 백업 예외(무시):", e);
     }
+    // FCM 푸시 알림 요청
+    try { __sendFcmPushNotify(currentRoomId || "", getSafeNickname(), "📎 파일"); } catch (eFcm) {}
   }
 
 
@@ -1951,8 +2023,7 @@ onPickImage: async function () {
       if (bodyEl) bodyEl.innerHTML = "";
     } catch (e) {}
     messages = [];
-    lastKey = null;
-    _lastRenderedDateKey = null;
+    _lastRenderedDateKey = null; // lastKey는 renderAll() 내 지역변수이므로 여기서 초기화 불필요
   }
 
   function switchRoom(roomId, meta) {
@@ -2000,19 +2071,19 @@ onPickImage: async function () {
     // Firebase에서 먼저 빠르게 로딩 (구독 시작)
     startFirebaseMsgListen(currentRoomId);
 
-    // 방 입장 → 미확인 배지 초기화
+    // 방 입장 → ghost:room-entered 이벤트 발행
+    // pwa-manager.js(index.html)의 리스너가 수신해 clearUnread 처리
+    // iframe에서 dispatch한 이벤트는 parent로 전파 안 되므로 parent.dispatchEvent 사용
     try {
-      if (window.PwaManager) window.PwaManager.clearUnread(currentRoomId);
-      window.dispatchEvent(new CustomEvent("ghost:room-entered", { detail: { roomId: currentRoomId } }));
+      var _evTarget = (window.parent && window.parent !== window) ? window.parent : window;
+      _evTarget.dispatchEvent(new CustomEvent("ghost:room-entered", { detail: { roomId: currentRoomId } }));
     } catch (eBadge) {}
 
-    // 구글 시트 백업 로딩: Firebase에서 아무것도 못 받았을 때만 (3초 대기 후 판단)
-    var _roomForSheet = currentRoomId;
-    setTimeout(function () {
-      if (currentRoomId !== _roomForSheet) return; // 방이 바뀌면 스킵
-      if (messages.length > 0) return; // Firebase에서 이미 불러왔으면 스킵
-      loadRecentFromSheet(_roomForSheet); // Firebase 데이터 없을 때만 시트 폴백
-    }, 3000);
+    // Firebase에서 데이터를 못 받은 경우: 빈 힌트 표시 (시트 폴백 제거됨)
+    // 데이터는 Firebase에서만 로드. 3초 후에도 없으면 빈 화면 유지.
+
+    // 현재 방 ID를 localStorage에 저장 (pwa-manager.js 배지 중복 방지용)
+    try { localStorage.setItem("ghostActiveRoomId", currentRoomId || ""); } catch (_eLs) {}
 
     // 상단 상태
     try {
@@ -2056,6 +2127,8 @@ onPickImage: async function () {
                 onNotify: function (info) {
                   // 현재 열려있는 방이면 알림 생략
                   if (info && info.roomId && currentRoomId && info.roomId === currentRoomId) return;
+                  // 내가 보낸 메시지면 알림 생략
+                  if (info && info.user_id && myId && String(info.user_id) === String(myId)) return;
 
 
 // 방문(입장)하지 않은 방은 알림/소리/점 표시를 하지 않음
@@ -2070,20 +2143,47 @@ try {
                     }
                   } catch (eBadge) {}
 
-                  if (NotifySetting && NotifySetting.isEnabled && NotifySetting.isEnabled()) {
-                    NotifySound.playDdiring();
-                    if (NotifySetting.maybeShow) {
-                      NotifySetting.maybeShow({
-                        room_id: info.roomId,
-                        user_id: info.user_id,
-                        ts: info.ts,
-                        nickname: "알림",
-                        text: "새 메시지"
-                      });
+                  // 앱 아이콘 배지 숫자 증가 (iframe이므로 parent 경유)
+                  try {
+                    var _pwa = (window.parent && window.parent.PwaManager) || window.PwaManager;
+                    if (_pwa && typeof _pwa.incrementUnread === "function") {
+                      _pwa.incrementUnread(info.roomId);
                     }
+                  } catch (ePwa) {}
+
+                  if (NotifySetting && NotifySetting.getMode && NotifySetting.getMode() !== "mute") {
+                    NotifySetting.handleIncoming && NotifySetting.handleIncoming({
+                      room_id: info.roomId,
+                      user_id: info.user_id || (info.signal && info.signal.user_id) || "",
+                      ts:      info.ts,
+                      nickname: (info.signal && info.signal.nickname) || "알림",
+                      text:    (info.signal && info.signal.text) || "새 메시지"
+                    });
+
                   }
+                  // 알림이 꺼진 경우 진동/소리 모두 생략
                 }
               });
+
+              // 방문한 방 목록에 대해 신호 구독 시작 → 다른 방 알림(onNotify) 활성화
+              try {
+                var _visitedRaw = localStorage.getItem("ghostRoomVisited_v1");
+                var _visitedRooms = ["global"];
+                if (_visitedRaw) {
+                  var _vm = JSON.parse(_visitedRaw) || {};
+                  Object.keys(_vm).forEach(function (rid) {
+                    if (_visitedRooms.indexOf(rid) < 0) _visitedRooms.push(rid);
+                  });
+                }
+                // 구독 전 현재 시각으로 seenTs 초기화 → 이미 읽은 메시지에 알림 재발화 방지
+                var _initTs = Date.now();
+                _visitedRooms.forEach(function (rid) {
+                  if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
+                    window.SignalBus.markSeenTs(rid, _initTs);
+                  }
+                });
+                window.SignalBus.syncRooms(_visitedRooms, "init");
+              } catch (_sr) {}
             }
           } catch (e2) {}
         }).catch(function () {});
@@ -2216,13 +2316,30 @@ attachEvents();
 
         if (tokens.length === 0) return;
 
+        // 캐릭터 정보 수집: games/ iframe이므로 parent 경유 (index.html의 core.js 변수)
+        var _fcmCharName = "미나";
+        var _fcmCharIcon = "images/emotions/기본대기1.png";
+        try {
+          var _par = (window.parent && window.parent !== window) ? window.parent : window;
+          if (_par.currentCharacterName) _fcmCharName = String(_par.currentCharacterName);
+          if (_par.CHARACTERS && _par.currentCharacterKey) {
+            var _fcc = _par.CHARACTERS[_par.currentCharacterKey];
+            if (_fcc) {
+              _fcmCharName = _fcc.name || _fcmCharName;
+              if (_fcc.basePath) _fcmCharIcon = _fcc.basePath + "기본대기1.png";
+            }
+          }
+        } catch (_fce) {}
+
         // Apps Script에 FCM 푸시 발송 요청
         window.postToSheet({
-          mode:    "fcm_push",
-          room_id: roomId || "global",
-          sender:  senderNick || "누군가",
-          body:    text ? (text.length > 50 ? text.slice(0, 50) + "…" : text) : "새 메시지",
-          tokens:  tokens.join(",")
+          mode:      "fcm_push",
+          room_id:   roomId || "global",
+          sender:    senderNick || "누군가",
+          body:      text ? (text.length > 50 ? text.slice(0, 50) + "…" : text) : "새 메시지",
+          tokens:    tokens.join(","),
+          char_name: _fcmCharName,  // 백그라운드 알림 title용
+          char_icon: _fcmCharIcon   // 백그라운드 알림 icon용
         }).then(function(res) {
           if (res && typeof res.json === "function") {
             res.json().then(function(d) {
@@ -2236,44 +2353,29 @@ attachEvents();
     } catch (e) {}
   }
 
-  /* ── 방 입장/퇴장 시 활성 방 정보 갱신 ── */
-  /* switchRoom 호출 시 /fcm_active_room/{userId} 갱신 — 알림 제외 판단용 */
-  var __origSwitchRoomForFcm = null;
-  function __patchSwitchRoomForFcm() {
-    if (typeof switchRoom !== "function" || __origSwitchRoomForFcm) return;
-    __origSwitchRoomForFcm = switchRoom;
-    switchRoom = function (roomId, roomInfo) {
-      // 방 이동 시 활성 방 갱신
-      if (myId && roomId) {
-        try {
-          var db2 = ensureFirebase();
-          if (db2) {
-            var safeId2 = String(myId).replace(/[.#$\[\]]/g, "_");
-            db2.ref("fcm_active_room/" + safeId2).set({
-              room_id: String(roomId),
-              ts: Date.now()
-            }).catch(function(){});
-          }
-        } catch (e2) {}
-      }
-      return __origSwitchRoomForFcm.apply(this, arguments);
-    };
-  }
-  // 초기화 후 패치
-  setTimeout(__patchSwitchRoomForFcm, 500);
+  /* ── fcm_active_room 갱신은 __sendFcmPushNotify() 내에서 직접 처리됨 ── */
+  /* (클로저 밖에서 switchRoom 패치 불가능하므로 패치 방식 제거) */
 
-  /* ── sw.js에서 FCM 수신 시 배지/방 이동 처리 ── */
+  /* ── FCM 수신/알림 클릭 처리 ── */
+  // 1) SW → index.html → gameFrame.postMessage 경로 (알림 클릭 시 방 이동)
+  window.addEventListener("message", function (ev) {
+    try {
+      var d = ev && ev.data;
+      if (!d || typeof d !== "object") return;
+      if (d.type === "FCM_OPEN_ROOM" && d.roomId) {
+        if (typeof switchRoom === "function") {
+          switchRoom(d.roomId, null);
+        }
+      }
+    } catch (e) {}
+  });
+
+  // 2) SW 직접 메시지 (게임 iframe이 직접 SW client인 경우 대비 fallback)
   navigator.serviceWorker && navigator.serviceWorker.addEventListener("message", function (ev) {
     try {
       var d = ev && ev.data;
       if (!d) return;
-      // 푸시 수신 → pwa-manager 배지 증가
-      if (d.type === "FCM_PUSH_RECEIVED" && d.roomId) {
-        if (window.PwaManager && typeof window.PwaManager.incrementUnread === "function") {
-          window.PwaManager.incrementUnread(d.roomId);
-        }
-      }
-      // 알림 클릭 → 해당 방으로 이동
+      // FCM_PUSH_RECEIVED 배지 증가는 pwa-manager.js가 처리함 (이중 증가 방지)
       if (d.type === "FCM_OPEN_ROOM" && d.roomId) {
         if (typeof switchRoom === "function") {
           switchRoom(d.roomId, null);
