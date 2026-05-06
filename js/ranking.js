@@ -186,11 +186,14 @@ function openRankingPopup(){
         if (box && !box.contains(e.target)) closeRankingOverlay();
       });
       closeBtn.addEventListener("click", closeRankingOverlay);
+    }
 
-      function closeRankingOverlay() {
-        overlay.style.opacity = "0";
-        setTimeout(function() { overlay.style.display = "none"; }, 210);
-      }
+    // closeRankingOverlay: if(!overlay) 블록 밖에 정의 → 재오픈 시에도 참조 가능
+    function closeRankingOverlay() {
+      var ov = document.getElementById("ranking-overlay");
+      if (!ov) return;
+      ov.style.opacity = "0";
+      setTimeout(function() { ov.style.display = "none"; }, 210);
     }
 
     overlay.style.display = "flex";
