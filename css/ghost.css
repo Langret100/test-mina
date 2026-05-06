@@ -1184,17 +1184,15 @@ body {
 }
 
 .board-inner {
-  /* 게시판 본체: 화면 하단을 기준으로 고정 배치
-     - 예전처럼 '아래에서 올라오는 패널' 느낌은 유지하되,
-       화면 중앙 쪽으로 조금 더 올리고 내부 스크롤을 허용합니다.
-     - 이 파일을 삭제한다면 게시판 관련 JS 모듈(js/ui.js, js/board-write-modal.js)의
-       연동 코드도 함께 삭제해도 됩니다. */
-  position: fixed;
-  left: 50%;
-  bottom: 60px;            /* 살짝 더 위로 올려 화면 중앙에 가깝게 */
-  transform: translateX(-50%);
-  width: min(860px, 80vw); /* 약 10% 축소 + 좌우 여백 유지 */
-  max-height: 78vh;        /* 안내 문구까지 패널 안에 들어오도록 높이를 조금 더 확보 */
+  /* 게시판 본체: board-panel(flex container) 안에서 중앙 배치
+     - position:fixed → relative 로 변경하여 board-panel click 이벤트가 정상 동작하도록 함
+     - 외부(배경) 클릭 시 닫힘이 작동하려면 board-inner가 board-panel의 진짜 자식이어야 함 */
+  position: relative;
+  left: auto;
+  bottom: auto;
+  transform: none;
+  width: min(860px, 80vw);
+  max-height: 78vh;
   background: #fdfbf7;
   border-radius: 16px;
   box-shadow: 0 18px 42px rgba(0, 0, 0, 0.35);
@@ -1202,7 +1200,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  overflow: hidden;        /* 패널 밖으로 요소가 삐져나오지 않도록 고정 */
+  overflow: hidden;
 }
   gap: 16px;
   transform: translateX(-50%);

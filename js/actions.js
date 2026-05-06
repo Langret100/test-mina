@@ -229,11 +229,13 @@ if (typeof setEmotion === "function") {
         }
       } else if (action === "login") {
         if (window.currentUser && window.currentUser.user_id) {
-          if (typeof logoutGhostUser === "function") {
-            logoutGhostUser();
+          if (typeof window.logoutGhostUser === "function") {
+            window.logoutGhostUser();
           }
-        } else if (typeof openLoginPanel === "function") {
-          openLoginPanel();
+        } else {
+          if (typeof window.openLoginPanel === "function") {
+            window.openLoginPanel();
+          }
         }
       } else if (action === "menu") {
         // [옵션 기능] 수첩(메뉴) 열기 기능 시작
@@ -276,4 +278,30 @@ if (typeof setEmotion === "function") {
       }
     });
   }
+
+  // ──────────────────────────────────────────
+  // 로그인 버튼 텍스트 동적 업데이트
+  // ──────────────────────────────────────────
+  function updateLoginBtn() {
+    var btn = document.getElementById("plusLoginBtn");
+    if (!btn) return;
+    if (window.currentUser && window.currentUser.user_id) {
+      btn.textContent = "🔓 로그아웃";
+    } else {
+      btn.textContent = "🔑 로그인";
+    }
+  }
+
+  // 초기 상태 반영 (login.js가 먼저 currentUser 복원할 수 있도록 load 이후 실행됨)
+  updateLoginBtn();
+
+  // 로그인 완료 → 버튼 "로그아웃"으로 변경
+  window.addEventListener("ghost:login-complete", function () {
+    updateLoginBtn();
+  });
+
+  // 로그아웃 완료 → 버튼 "로그인"으로 변경
+  window.addEventListener("ghost:logout", function () {
+    updateLoginBtn();
+  });
 }

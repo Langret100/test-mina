@@ -333,11 +333,16 @@ function setStatus(msg) {
     } catch (e) {}
     window.currentUser = null;
     window.__loginConfirmed = false;
-    setStatus("로그아웃 되었어요.");
     if (typeof showBubble === "function") {
       showBubble("다음에 또 와요!");
     }
     updateLogoutVisibility();
+    // 로그아웃 이벤트 발송 → 버튼 텍스트 갱신
+    window.dispatchEvent(new CustomEvent("ghost:logout"));
+    // 로그인 패널 자동 오픈
+    setTimeout(function () {
+      openLoginPanel();
+    }, 300);
   }
 
   // ==============================
@@ -385,12 +390,17 @@ function setStatus(msg) {
         };
         try {
           localStorage.setItem("ghostUser", JSON.stringify(window.currentUser));
-      } catch (e) {}
-      window.__loginConfirmed = true;
+        } catch (e) {}
+        window.__loginConfirmed = true;
         setStatus("게스트로 입장했어요. 나중에 회원가입하면 더 오래 기록을 남길 수 있어요.");
         if (typeof showBubble === "function") {
           showBubble(window.currentUser.nickname + "님, 가볍게 놀다 가요!");
         }
+        try {
+          window.dispatchEvent(new CustomEvent("ghost:login-complete", {
+            detail: { nickname: window.currentUser.nickname, user_id: window.currentUser.user_id }
+          }));
+        } catch (eEv) {}
         updateLogoutVisibility();
         setTimeout(closeLoginPanel, 600);
       });
