@@ -248,10 +248,16 @@
         position: fixed;
         inset: 0;
         z-index: 1800;
-        display: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease-out;
       }
       #questExplorerOverlay.active {
-        display: block;
+        opacity: 1;
+        pointer-events: auto;
       }
       #questExplorerOverlay .qe-backdrop {
         position: absolute;
@@ -259,10 +265,10 @@
         background: rgba(0,0,0,0.45);
       }
       #questExplorerOverlay .qe-panel {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
+        position: relative;
+        left: auto;
+        top: auto;
+        transform: none;
         background: #faf4e6;
         border-radius: 20px;
         box-shadow: 0 18px 40px rgba(0,0,0,0.45);
@@ -577,12 +583,12 @@
     panelInner.appendChild(grid);
     panelInner.appendChild(footer);
 
-    backdrop.addEventListener("click", () => {
+    function closeQuestOverlay() {
       overlay.classList.remove("active");
-    });
-    closeBtn.addEventListener("click", () => {
-      overlay.classList.remove("active");
-    });
+      // display는 CSS opacity+pointer-events로 관리 → display 별도 처리 불필요
+    }
+    backdrop.addEventListener("click", closeQuestOverlay);
+    closeBtn.addEventListener("click", closeQuestOverlay);
 
     document.body.appendChild(overlay);
     panel = overlay;
@@ -610,7 +616,7 @@
     }
 
     const overlay = ensurePanel();
-    overlay.classList.add("active");
+    requestAnimationFrame(function() { overlay.classList.add("active"); });
   }
 
   // 페이지가 준비되면 상단 퀘스트 현황 바를 초기화합니다.

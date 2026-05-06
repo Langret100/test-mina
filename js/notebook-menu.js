@@ -158,7 +158,7 @@ function initNotebookMenu() {
   }
 
   function closeNotebookMenu() {
-    overlay.classList.remove("active");
+    overlay.classList.remove("active"); // opacity:0 transition 시작
     if (window.showFullscreenButton) {
       try { window.showFullscreenButton(); } catch (e) {}
     }
@@ -188,9 +188,14 @@ function initNotebookMenu() {
   if (closeBtn) {
     closeBtn.addEventListener("click", closeNotebookMenu);
   }
-  if (backdrop) {
-    backdrop.addEventListener("click", closeNotebookMenu);
-  }
+  // notebook-wrapper 외부(backdrop 포함 overlay 여백) 클릭 시 닫힘
+  // backdrop과 overlay 이벤트 중복 방지: overlay 이벤트만 사용
+  overlay.addEventListener("click", function (e) {
+    var wrapper = overlay.querySelector(".notebook-wrapper");
+    if (wrapper && !wrapper.contains(e.target)) {
+      closeNotebookMenu();
+    }
+  });
 
   // 각 메모 카드를 눌렀을 때 해당 기능 열기
   memoCards.forEach((card) => {
@@ -368,15 +373,23 @@ function initNotebookMenu() {
     var panel = document.getElementById('boardPanel');
     if (!panel) return;
     panel.classList.remove('hidden');
-    panel.classList.add('open');
+    panel.style.display = 'flex';
+    requestAnimationFrame(function () {
+      panel.classList.add('open');
+    });
     loadBoardList();
   }
 
   function closeBoardPanel() {
     var panel = document.getElementById('boardPanel');
     if (!panel) return;
-    panel.classList.add('hidden');
     panel.classList.remove('open');
+    setTimeout(function () {
+      if (!panel.classList.contains('open')) {
+        panel.style.display = 'none';
+        panel.classList.add('hidden');
+      }
+    }, 200);
   }
 
   function renderPage() {
@@ -479,7 +492,17 @@ function initNotebookMenu() {
     var nextBtn = document.getElementById('boardNextPageBtn');
 
     if (closeBtn) closeBtn.addEventListener('click', closeBoardPanel);
-    if (backdrop) backdrop.addEventListener('click', closeBoardPanel);
+    // backdrop 클릭: board-inner(fixed)가 backdrop(absolute) 위에 있어서
+    // backdrop 이벤트가 안 닿음 → board-panel 자체에서 inner 외부 클릭 감지
+    var boardPanel = document.getElementById('boardPanel');
+    if (boardPanel) {
+      boardPanel.addEventListener('click', function (e) {
+        var inner = boardPanel.querySelector('.board-inner');
+        if (inner && !inner.contains(e.target)) {
+          closeBoardPanel();
+        }
+      });
+    }
     if (reloadBtn) reloadBtn.addEventListener('click', loadBoardList);
     if (prevBtn) prevBtn.addEventListener('click', function () { _page--; renderPage(); });
     if (nextBtn) nextBtn.addEventListener('click', function () { _page++; renderPage(); });

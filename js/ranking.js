@@ -79,6 +79,8 @@ function openRankingPopup(){
       overlay.style.display = "flex";
       overlay.style.alignItems = "center";
       overlay.style.justifyContent = "center";
+      overlay.style.opacity = "0";
+      overlay.style.transition = "opacity 0.2s ease-out";
 
       const box = document.createElement("div");
       box.id = "ranking-box";
@@ -178,12 +180,22 @@ function openRankingPopup(){
       overlay.appendChild(box);
       document.body.appendChild(overlay);
 
-      closeBtn.addEventListener("click", ()=>{
-        overlay.style.display = "none";
+      // 외부(overlay 배경) 클릭으로도 닫기
+      overlay.addEventListener("click", function(e) {
+        var box = document.getElementById("ranking-box");
+        if (box && !box.contains(e.target)) closeRankingOverlay();
       });
+      closeBtn.addEventListener("click", closeRankingOverlay);
+
+      function closeRankingOverlay() {
+        overlay.style.opacity = "0";
+        setTimeout(function() { overlay.style.display = "none"; }, 210);
+      }
     }
 
     overlay.style.display = "flex";
+    overlay.style.opacity = "0";
+    requestAnimationFrame(function() { overlay.style.opacity = "1"; });
 
     // 첫 탭(구구단게임) 로딩
     const firstTab = overlay.querySelector(".rk-tab");

@@ -12,10 +12,12 @@
 (function (window, document) {
   if (!window || !document) return;
 
-  // Apps Script 엔드포인트: 기존 시스템에서 사용하던 SPREADSHEET_URL을 재사용
-  // - SPREADSHEET_URL 이 정의되지 않았거나 빈 문자열이면,
-  //   서버 연동 없이 로컬에서만 동작합니다.
-  var API = (typeof SPREADSHEET_URL !== "undefined" && SPREADSHEET_URL) || "";
+  // Apps Script 엔드포인트: config.js의 SHEET_WRITE_URL 사용
+  // SPREADSHEET_URL이 없으면 SHEET_WRITE_URL로 fallback
+  var API = (typeof SHEET_WRITE_URL !== "undefined" && SHEET_WRITE_URL)
+          || (typeof SPREADSHEET_URL !== "undefined" && SPREADSHEET_URL)
+          || (window.SHEET_WRITE_URL)
+          || "";
 
   
   var DAYS = ["일", "월", "화", "수", "목", "금", "토"];
@@ -101,19 +103,23 @@
 
     document.body.appendChild(overlay);
 
+    function closeAttendanceOverlay() {
+      lastManualCloseTime = Date.now();
+      overlay.classList.remove("open");
+      setTimeout(function () {
+        if (!overlay.classList.contains("open")) {
+          overlay.style.display = "none";
+        }
+      }, 220);
+    }
+
     overlay
       .querySelector(".attendance-backdrop")
-      .addEventListener("click", function () {
-        lastManualCloseTime = Date.now();
-        overlay.classList.remove("open");
-      });
+      .addEventListener("click", closeAttendanceOverlay);
 
     overlay
       .querySelector(".attendance-close-btn")
-      .addEventListener("click", function () {
-        lastManualCloseTime = Date.now();
-        overlay.classList.remove("open");
-      });
+      .addEventListener("click", closeAttendanceOverlay);
 
     return overlay;
   }
@@ -249,7 +255,11 @@
         return;
       }
 
-      overlay.classList.add("open");
+      // display:none → display:flex 전환 후 transition을 위해 rAF 사용
+      overlay.style.display = "flex";
+      requestAnimationFrame(function () {
+        overlay.classList.add("open");
+      });
 
       // 패널을 열 때 사용한 출석 상태를 로컬에도 저장해 둡니다.
       // (모두 빈 값인 경우에는 기존에 저장된 기록을 덮어쓰지 않습니다.)
@@ -296,7 +306,8 @@
         var days = (res && res.days) || daysBefore;
         renderDays(days || []);
         var overlay = createOverlay();
-        overlay.classList.add("open");
+        overlay.style.display = "flex";
+        requestAnimationFrame(function () { overlay.classList.add("open"); });
         hasShownToday = true;
 
         // 출석 상태를 로컬에도 저장해 둡니다.
@@ -346,6 +357,8 @@
 
   // 수첩 메뉴에서 열 때 사용하는 전역 함수
   function openAttendanceStamp() {
+    // 수동으로 열 때는 닫힘 방지 타이머 초기화 (10분 제한 무시)
+    lastManualCloseTime = 0;
     var user = window.currentUser || null;
     if (!user || !user.user_id) {
       if (typeof showBubble === "function") {
@@ -364,7 +377,8 @@
       if (cached && cached.length) {
         renderDays(cached || []);
         var overlayCached = createOverlay();
-        overlayCached.classList.add("open");
+        overlayCached.style.display = "flex";
+        requestAnimationFrame(function () { overlayCached.classList.add("open"); });
       }
     }
 

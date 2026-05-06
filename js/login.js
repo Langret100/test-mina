@@ -245,6 +245,10 @@ function setStatus(msg) {
           window.dispatchEvent(new CustomEvent("ghost:login-complete", {
             detail: { nickname: window.currentUser.nickname, user_id: window.currentUser.user_id }
           }));
+          // 출석 도장 모듈 연동 (attendance-stamp.js가 수신)
+          window.dispatchEvent(new CustomEvent("ghost:attendanceLogin", {
+            detail: { user: window.currentUser }
+          }));
         } catch (eEv) {}
 
         setStatus("로그인에 성공했어요!");
@@ -304,6 +308,9 @@ function setStatus(msg) {
         try {
           window.dispatchEvent(new CustomEvent("ghost:login-complete", {
             detail: { nickname: window.currentUser.nickname, user_id: window.currentUser.user_id }
+          }));
+          window.dispatchEvent(new CustomEvent("ghost:attendanceLogin", {
+            detail: { user: window.currentUser }
           }));
         } catch (eEv) {}
         setStatus("회원가입이 완료되었어요! 자동으로 로그인했어요.");
@@ -407,7 +414,9 @@ function setStatus(msg) {
     try { hideLoginAutoOverlay(); } catch (e) {}
 
     panel.classList.remove("hidden");
-    panel.classList.add("open");
+    requestAnimationFrame(function () {
+      panel.classList.add("open");
+    });
     setStatus("");
     createOrUpdateLoginLogo();
     if (window.hideFullscreenButton) {
@@ -436,8 +445,12 @@ function setStatus(msg) {
     }
     var panel = document.getElementById("loginPanel");
     if (!panel) return;
-    panel.classList.remove("open");
-    panel.classList.add("hidden");
+    panel.classList.remove("open"); // opacity:0 transition 시작
+    setTimeout(function () {
+      if (!panel.classList.contains("open")) {
+        panel.classList.add("hidden"); // transition 끝난 후 숨김
+      }
+    }, 220);
     try { hideLoginAutoOverlay(); } catch (e) {}
     hideLoginLogo();
     if (window.showFullscreenButton) {

@@ -946,7 +946,7 @@ body {
   justify-content: center;
   pointer-events: none;
   opacity: 0;
-  transition: none;
+  transition: opacity 0.2s ease-out;
 }
 
 /* 수첩(메뉴) 카드 공통 레이아웃 - 화면 중앙 카드형 */
@@ -971,7 +971,10 @@ body {
 }
 
 .notebook-backdrop {
-  display: none;
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  cursor: default;
 }
 
 
@@ -1155,7 +1158,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 998;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   pointer-events: none;
@@ -1163,7 +1166,12 @@ body {
   transition: opacity 0.18s ease-out;
 }
 
+.board-panel.hidden {
+  display: none;
+}
+
 .board-panel.open {
+  display: flex;
   pointer-events: auto;
   opacity: 1;
 }
@@ -1172,6 +1180,7 @@ body {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.35);
+  pointer-events: none; /* 클릭은 board-panel에서 처리 */
 }
 
 .board-inner {
@@ -1405,9 +1414,16 @@ body {
   position: fixed;
   inset: 0;
   z-index: 1200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-out;
 }
 .login-panel.hidden {
   display: none;
+}
+.login-panel.open {
+  opacity: 1;
+  pointer-events: auto;
 }
 .login-backdrop {
   position: absolute;
@@ -1633,7 +1649,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 1100;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   pointer-events: none;
@@ -1642,6 +1658,7 @@ body {
 }
 
 .attendance-overlay.open {
+  display: flex;
   pointer-events: auto;
   opacity: 1;
 }
@@ -1807,7 +1824,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: 1200;
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   opacity: 0;
@@ -1816,6 +1833,7 @@ body {
 }
 
 .letter-overlay.open {
+  display: flex;
   opacity: 1;
   pointer-events: auto;
 }
@@ -2351,20 +2369,28 @@ body {
   inset: 0;
   z-index: 99990;
   display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
 }
 .attendance-overlay.open {
-  display: block;
+  display: flex;
+  pointer-events: auto;
+  opacity: 1;
 }
 .attendance-backdrop {
   position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.40);
+  cursor: default;
 }
 .attendance-panel {
-  position: absolute;
-  top: 28%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  position: relative;
+  top: auto;
+  left: auto;
+  transform: none;
   width: min(480px, 90vw);
   background: #fdfaf4;
   border-radius: 18px;
