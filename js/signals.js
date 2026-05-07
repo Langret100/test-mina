@@ -116,6 +116,12 @@
               });
             }
 
+            // onNotify 직전에 seenTs를 다시 읽어 체크한다.
+            // onMessage 안에서 markSeenTs가 갱신됐을 수 있고,
+            // Firebase child_added와의 타이밍 레이스로 seenTs가 갱신돼 있을 수 있기 때문이다.
+            var seenTsNow = _seenTsMap[roomId] || 0;
+            if (val.ts <= seenTsNow) return;
+
             if (h.onNotify) {
               h.onNotify({ roomId: roomId, ts: val.ts, user_id: val.user_id || '', signal: val });
             }

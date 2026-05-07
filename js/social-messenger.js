@@ -753,19 +753,21 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
           messages.push(msg2);
           messages.sort(function (a, b) { return (__smParseTs(a.ts) - __smParseTs(b.ts)); });
           if (messages.length > MAX_BUFFER * 2) messages.splice(0, messages.length - MAX_BUFFER * 2);
+
+          // 봤음 갱신 — 렌더/알람보다 먼저 호출해야 SignalBus onNotify의 seenTs 체크가
+          // 타이밍 레이스 없이 이 메시지를 확실히 차단합니다.
+          try {
+            if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
+              window.SignalBus.markSeenTs(roomId, msg2.ts);
+            }
+          } catch (e0) {}
+
           // _local 교체 시 renderAll(날짜구분선 재계산), 신규 메시지면 appendNewMessage
           if (wasLocal) {
             renderAll();
           } else {
             appendNewMessage(msg2);
           }
-
-          // 봤음 갱신
-          try {
-            if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function") {
-              window.SignalBus.markSeenTs(roomId, msg2.ts);
-            }
-          } catch (e0) {}
 
           // 알림음: 다른 사람 메시지 (구독 시작 후 1.5초 이후, 내 메시지 제외)
           try {
