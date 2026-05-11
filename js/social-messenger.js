@@ -2208,9 +2208,18 @@ attachEvents();
         var initialRoomId = "";
     var initialRoomName = "";
     try {
+      // 알림 클릭으로 앱이 새로 열린 경우: URL ?room= 파라미터 우선 적용
+      var _urlParams = new URLSearchParams(window.location.search ||
+        (window.parent !== window ? window.parent.location.search : ""));
+      var _roomFromUrl = _urlParams.get("room");
+      if (_roomFromUrl && String(_roomFromUrl).trim()) {
+        initialRoomId = String(_roomFromUrl).trim();
+      }
+    } catch (_eUrl) {}
+    try {
       var rid = localStorage.getItem("ghostActiveRoomId");
       var rname = localStorage.getItem("ghostActiveRoomName");
-      if (rid && String(rid).trim()) initialRoomId = String(rid).trim();
+      if (!initialRoomId && rid && String(rid).trim()) initialRoomId = String(rid).trim();
       if (rname && String(rname).trim()) initialRoomName = String(rname).trim();
     } catch (e1) {}
 
