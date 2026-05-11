@@ -163,21 +163,23 @@
     if (!hasSpeech || !enabled) return;
     if (!text || typeof text !== "string") return;
     try {
-      const utter = new window.SpeechSynthesisUtterance(text);
-      const voice = pickVoiceForUtterance();
-      if (voice) {
-        utter.voice = voice;
-      }
-      utter.lang = (voice && voice.lang) || "ko-KR";
-      utter.pitch = mapToneToPitch(toneValue);
-      utter.rate = clampRange(mapRateToUtteranceRate(rateValue) * mapToneRateFactor(toneValue), SOUND_MIN, SOUND_MAX, 1.0);
-
       // 이전 재생 중인 음성 정리
-      // Chrome에서 cancel() 직후 speak() 시 첫 음절 끊김 방지 → 50ms 딜레이
       try { window.speechSynthesis.cancel(); } catch(e){}
+
+      // cancel() 직후 speak() 시 첫 음절 끊김 방지
+      // - utterance를 setTimeout 안에서 생성해야 voice 바인딩이 유지됨
+      // - Chrome/Android에서 cancel→speak 간 최소 150ms 필요
       setTimeout(function() {
-        try { window.speechSynthesis.speak(utter); } catch(e2){}
-      }, 50);
+        try {
+          const utter = new window.SpeechSynthesisUtterance(text);
+          const voice = pickVoiceForUtterance();
+          if (voice) utter.voice = voice;
+          utter.lang = (voice && voice.lang) || "ko-KR";
+          utter.pitch = mapToneToPitch(toneValue);
+          utter.rate = clampRange(mapRateToUtteranceRate(rateValue) * mapToneRateFactor(toneValue), SOUND_MIN, SOUND_MAX, 1.0);
+          window.speechSynthesis.speak(utter);
+        } catch(e2){}
+      }, 150);
     } catch(e){
       // 실패해도 UI에 영향은 없도록 무시
     }
