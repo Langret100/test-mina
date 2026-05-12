@@ -2241,6 +2241,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding-bottom: 120px;
   z-index: 9999;
 }
 
@@ -3410,9 +3411,9 @@ body.always-listen-center #bubbleWrapper .bubble::after {
   transform: translate3d(var(--plx-x), var(--plx-y), 0);
 }
 
-/* teachModal은 중앙 정렬(translate -50%,-50%) + 패럴랙스 합산 */
+/* teachModal은 중앙보다 60px 위 정렬 + 패럴랙스 합산 */
 #teachModal {
-  transform: translate(calc(-50% + var(--plx-x)), calc(-50% + var(--plx-y)));
+  transform: translate(calc(-50% + var(--plx-x)), calc(-50% + var(--plx-y) - 60px));
 }
 
 /* boardWriteModal은 inset:0 flex 오버레이 — 패럴랙스 불필요 */
