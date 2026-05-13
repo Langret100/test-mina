@@ -564,10 +564,10 @@ body.is-game-mode #ghostContainer {
 }
   
 .teach-modal {
-  position: fixed;
-  top: 15%;
-  left: 50%;
-  transform: translateX(-50%);
+  position: fixed !important;
+  top: 10% !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
   max-width: 320px;
   width: 80%;
   max-height: 75vh;
@@ -1203,7 +1203,7 @@ body {
   flex-direction: column;
   gap: 16px;
   overflow: hidden;
-  margin-top: -80px;
+  margin-top: -80px !important;
 }
 }
   gap: 16px;
