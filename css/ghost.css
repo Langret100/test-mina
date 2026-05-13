@@ -565,7 +565,7 @@ body.is-game-mode #ghostContainer {
   
 .teach-modal {
   position: fixed !important;
-  top: 10% !important;
+  top: 30% !important;
   left: 50%;
   max-width: 320px;
   width: 80%;

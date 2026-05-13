@@ -159,6 +159,9 @@
     return chosen || null;
   }
 
+  // 가장 최근 speak 요청 ID (이전 요청은 무시)
+  let _speakSeq = 0;
+
   function speak(text){
     if (!hasSpeech || !enabled) return;
     if (!text || typeof text !== "string") return;
@@ -180,10 +183,14 @@
       return;
     }
 
+    // 이 요청의 고유 번호 - 더 최신 요청이 오면 이 요청은 무시
+    const mySeq = ++_speakSeq;
+
     function _doSpeak() {
+      // 더 최신 요청이 있으면 중단
+      if (mySeq !== _speakSeq) return;
       try {
         const synth = window.speechSynthesis;
-        // paused 상태 해제
         try { synth.resume(); } catch(e) {}
         const utter = new window.SpeechSynthesisUtterance(text);
         const voice = pickVoiceForUtterance();
@@ -201,9 +208,8 @@
     try {
       const synth = window.speechSynthesis;
       if (synth.speaking || synth.pending) {
-        // 재생 중 → cancel 후 완료 대기
         synth.cancel();
-        // cancel은 비동기. speaking이 false가 될 때까지 짧게 폴링 (최대 300ms)
+        // cancel 완료까지 폴링 (최대 300ms, 20ms 간격)
         let _waited = 0;
         const _wait = setInterval(function() {
           _waited += 20;
