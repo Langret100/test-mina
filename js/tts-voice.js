@@ -142,57 +142,16 @@
     voicesCache = list.slice();
   }
 
-  // 남성 캐릭터 이름 목록 - 해당 캐릭터가 활성화되면 자동으로 남성 음성 우선 선택
-  const MALE_CHARACTER_NAMES = ["민수", "성훈", "퉁퉁이"];
-
-  function isMaleCharacter(){
-    try {
-      const name = String(
-        (typeof window.currentCharacterName !== "undefined" && window.currentCharacterName) ||
-        (window.GhostCore && typeof window.GhostCore.getCurrentCharacterName === "function"
-          ? window.GhostCore.getCurrentCharacterName() : "") ||
-        ""
-      ).trim();
-      return MALE_CHARACTER_NAMES.some(function(n){ return name === n; });
-    } catch(e){ return false; }
-  }
-
-  function isMaleVoice(voice){
-    const hay = ((voice.name || "") + " " + (voice.voiceURI || "")).toLowerCase();
-    // 명시적 여성 키워드 → 제외
-    if (/(female|woman|여성|yuna|sunhi|sun.hi|heami)/.test(hay)) return false;
-    // 명시적 남성 키워드 → 포함
-    if (/(male|man|남성|injoon|junho|jun.ho|seungmin)/.test(hay)) return true;
-    return false;
-  }
-
   function pickVoiceForUtterance(){
     if (!hasSpeech) return null;
     if (!voicesCache.length) refreshVoices();
 
     let chosen = null;
-
-    // 1) 사용자가 직접 목소리를 고른 경우 → 그대로 존중
     if (selectedVoiceId && voicesCache.length){
       chosen = voicesCache.find(v => v.name === selectedVoiceId || v.voiceURI === selectedVoiceId) || null;
     }
 
-    // 2) 사용자 선택이 없고 남성 캐릭터이면 → 한국어 남성 음성 자동 선택
-    if (!chosen && isMaleCharacter() && voicesCache.length){
-      const koVoices = voicesCache.filter(v => (v.lang || "").toLowerCase().startsWith("ko"));
-      const maleKo = koVoices.filter(isMaleVoice);
-      if (maleKo.length) {
-        chosen = maleKo[0];
-      } else {
-        // 한국어 남성이 없으면 전체에서 남성 탐색
-        const anyMale = voicesCache.filter(isMaleVoice);
-        if (anyMale.length) chosen = anyMale[0];
-      }
-      // 그래도 없으면 ko-KR 목록의 마지막 항목 (브라우저 목록상 낮은 톤 경향)
-      if (!chosen && koVoices.length) chosen = koVoices[koVoices.length - 1];
-    }
-
-    // 3) 기본 폴백 → ko-KR 첫 번째
+    // 저장된 음성을 못 찾으면, ko-KR 우선 선택
     if (!chosen && voicesCache.length){
       const ko = voicesCache.filter(v => (v.lang || '').toLowerCase().startsWith('ko'));
       chosen = (ko && ko[0]) || voicesCache[0];
