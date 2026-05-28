@@ -558,7 +558,9 @@ var NotifySetting = (function () {
 })();
 window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근용
 
-
+// ── 실시간 톡: 캐릭터 이름 호출 감지 후 자동 응답 ──────────────────
+// NotifySetting IIFE 바깥 - myId, messages, currentRoomId, MAX_BUFFER,
+// appendNewMessage 등 상위 스코프 변수에 직접 접근 가능
   function isEmojiOnlyText(text) {
     if (!text || typeof text !== "string") return false;
     var compact = text.replace(/\s+/g, "");
@@ -794,6 +796,13 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
             appendNewMessage(msg2);
           }
 
+          // 캐릭터 이름 호출 감지 → 자동 답변 (구독 시작 후 1.5초 이후에만)
+          try {
+            if ((Date.now() - subStartTs) > 1500) {
+              maybeCharacterReply(msg2);
+            }
+          } catch (eChar) {}
+
           // 알림음: 다른 사람 메시지 (구독 시작 후 1.5초 이후, 내 메시지 제외)
           try {
             if (msg2.user_id && String(msg2.user_id) !== String(myId || "") &&
@@ -956,9 +965,11 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
       ? (msg.user_id === myId)
       : (msg.nickname && myNickname && msg.nickname === myNickname);
     wrapper.className = "msg-row " + (isMe ? "me" : "other");
+    if (msg._charReply) wrapper.classList.add("char-reply");
 
     var bubble = document.createElement("div");
     bubble.className = "bubble";
+    if (msg._charReply) bubble.classList.add("char-reply-bubble");
 
     // 메시지 타입: text | image | file
     var type = msg.type || "text";
@@ -1080,23 +1091,42 @@ window.NotifySetting = NotifySetting; // profile-manager 등 외부에서 접근
       avatarImg.setAttribute("data-profile-nick", msg.nickname || "익명");
       avatarImg.alt = msg.nickname || "익명";
       avatarImg.style.cssText = "width:36px;height:36px;border-radius:50%;object-fit:cover;background:#e0e7ff;display:block;";
-      // 프로필 이미지: ProfileManager 캐시 우선, 없으면 기본 아바타
-      avatarImg.src = (window.ProfileManager && window.ProfileManager.getAvatarUrl)
-        ? window.ProfileManager.getAvatarUrl(msg.nickname || "")
-        : "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#c7d2fe"/><circle cx="20" cy="15" r="7" fill="#818cf8"/><ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
-      avatarImg.onerror = function () {
-        this.onerror = null;
-        this.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#c7d2fe"/><circle cx="20" cy="15" r="7" fill="#818cf8"/><ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
-      };
-      // 클릭 시 프로필 이미지 확대 보기
-      avatarImg.style.cursor = "pointer";
-      avatarImg.addEventListener("click", function () {
-        showProfileZoom(msg.nickname || "익명", this.src);
-      });
-      // 백그라운드 Drive 캐시
-      if (window.ProfileManager && window.ProfileManager.fetchAndCacheProfile) {
-        setTimeout(function () { window.ProfileManager.fetchAndCacheProfile(msg.nickname || ""); }, 400);
+
+      if (msg._charReply) {
+        // 캐릭터 자동답변: 캐릭터 아이콘 사용
+        try {
+          var _ck = (window.parent && window.parent.currentCharacterKey) || localStorage.getItem("ghostCurrentCharacter") || "mina";
+          var _ch = window.parent && window.parent.CHARACTERS;
+          var _bp = (_ch && _ch[_ck] && _ch[_ck].basePath) ? _ch[_ck].basePath : "images/emotions/";
+          avatarImg.src = new URL("../" + _bp + "기본대기1.png", location.href).href;
+        } catch(e) {
+          avatarImg.src = new URL("../images/emotions/기본대기1.png", location.href).href;
+        }
+        avatarImg.style.cssText = "width:36px;height:36px;border-radius:50%;object-fit:cover;background:#fef3c7;display:block;border:2px solid #fbbf24;";
+        avatarImg.onerror = function () {
+          this.onerror = null;
+          this.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#fde68a"/><text x="20" y="26" text-anchor="middle" font-size="18">🌟</text></svg>');
+        };
+      } else {
+        // 프로필 이미지: ProfileManager 캐시 우선, 없으면 기본 아바타
+        avatarImg.src = (window.ProfileManager && window.ProfileManager.getAvatarUrl)
+          ? window.ProfileManager.getAvatarUrl(msg.nickname || "")
+          : "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#c7d2fe"/><circle cx="20" cy="15" r="7" fill="#818cf8"/><ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
+        avatarImg.onerror = function () {
+          this.onerror = null;
+          this.src = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#c7d2fe"/><circle cx="20" cy="15" r="7" fill="#818cf8"/><ellipse cx="20" cy="34" rx="12" ry="9" fill="#818cf8"/></svg>');
+        };
+        // 클릭 시 프로필 이미지 확대 보기
+        avatarImg.style.cursor = "pointer";
+        avatarImg.addEventListener("click", function () {
+          showProfileZoom(msg.nickname || "익명", this.src);
+        });
+        // 백그라운드 Drive 캐시
+        if (window.ProfileManager && window.ProfileManager.fetchAndCacheProfile) {
+          setTimeout(function () { window.ProfileManager.fetchAndCacheProfile(msg.nickname || ""); }, 400);
+        }
       }
+
       avatarWrap.appendChild(avatarImg);
       inner.appendChild(avatarWrap);
     }
@@ -1477,6 +1507,11 @@ function __applyRelayMessage(msgInfo) {
     } else {
       appendNewMessage(m);
     }
+
+    // 캐릭터 이름 호출 감지 → 자동 답변
+    try {
+      if (!m._charReply) maybeCharacterReply(m);
+    } catch (eCharR) {}
   } catch (e) {}
 }
 
@@ -1598,6 +1633,123 @@ function __applyRelayMessage(msgInfo) {
     // 2) FCM 푸시 알림 요청 (Apps Script 경유)
     try { __sendFcmPushNotify(currentRoomId || "", getSafeNickname(), clean); } catch (eFcm) {}
   }
+
+  // ── 캐릭터 이름/아이콘으로 실시간 톡에 메시지 전송 ──────────────────
+  // sendTextMessage와 동일한 흐름, 닉네임/user_id만 캐릭터로 교체
+  function getCharName() {
+    try {
+      if (window.parent && window.parent !== window && window.parent.currentCharacterName)
+        return String(window.parent.currentCharacterName);
+      var key = (window.parent && window.parent.currentCharacterKey)
+             || localStorage.getItem("ghostCurrentCharacter") || "mina";
+      var chars = window.parent && window.parent.CHARACTERS;
+      if (chars && chars[key] && chars[key].name) return String(chars[key].name);
+    } catch(e) {}
+    return "미나";
+  }
+
+  function sendCharacterMessage(text) {
+    var clean = (text || "").trim();
+    if (!clean || !currentRoomId) return;
+
+    var charName = getCharName();
+    var charUserId = "__char__";   // 캐릭터 전용 user_id (내 메시지 필터에 안 걸림)
+    var now = Date.now();
+    var mid = "char_" + now + "_" + Math.random().toString(16).slice(2);
+
+    // 1) 화면에 즉시 표시 (_charReply 플래그로 캐릭터 스타일 적용)
+    var localMsg = {
+      key: mid, mid: mid,
+      user_id: charUserId,
+      nickname: charName,
+      text: clean, type: "text",
+      ts: now, room_id: currentRoomId,
+      _charReply: true, _local: true
+    };
+    try {
+      messages.push(localMsg);
+      if (messages.length > MAX_BUFFER) messages.splice(0, messages.length - MAX_BUFFER);
+      appendNewMessage(localMsg);
+      if (window.SignalBus && typeof window.SignalBus.markSeenTs === "function")
+        window.SignalBus.markSeenTs(currentRoomId, now);
+    } catch(e) {}
+
+    // 2) SignalBus 실시간 중계 (다른 접속자에게 즉시 전달)
+    try {
+      __rememberRelay(mid);
+      if (window.SignalBus && typeof window.SignalBus.push === "function") {
+        window.SignalBus.push(currentRoomId, {
+          kind: "chat", mid: mid,
+          room_id: currentRoomId,
+          user_id: charUserId,
+          nickname: charName,
+          text: clean, ts: now
+        });
+      }
+    } catch(e) {}
+
+    // 3) Firebase DB 저장 (영구 기록)
+    try {
+      var fbPath = getFirebasePath(currentRoomId);
+      var fbDb = ensureFirebase();
+      if (fbDb && fbPath) {
+        fbDb.ref(fbPath).push({
+          mid: mid, user_id: charUserId, nickname: charName,
+          text: clean, type: "text", ts: now, room_id: currentRoomId
+        });
+        __pruneOldFirebaseMessages(currentRoomId);
+      }
+    } catch(e) {}
+  }
+
+  var _charCooldown = 0;
+  var _CHAR_COOLDOWN_MS = 2000;
+
+  function maybeCharacterReply(msg) {
+    try {
+      if (!msg || !msg.text || msg._charReply) return;
+      if (String(msg.user_id || "") === "__char__") return;
+
+      var text = String(msg.text || "").trim();
+      if (!text) return;
+
+      var charName = getCharName();
+      console.log("[charReply] 호출됨 text=", text, "charName=", charName);
+      if (!charName) { console.log("[charReply] charName 없음 → 종료"); return; }
+
+      var compactText = text.replace(/\s+/g, "");
+      var compactName = charName.replace(/\s+/g, "");
+      console.log("[charReply] 이름 포함 체크:", compactText, "includes", compactName, "→", compactText.includes(compactName));
+      if (!compactText.includes(compactName)) return;
+
+      var now = Date.now();
+      if (now - _charCooldown < _CHAR_COOLDOWN_MS) { console.log("[charReply] 쿨다운 중"); return; }
+      _charCooldown = now;
+
+      var bridge = null;
+      try { bridge = window.parent && window.parent.GhostCoreBridge; } catch(e) { console.log("[charReply] bridge 접근 에러", e); }
+      console.log("[charReply] bridge=", bridge);
+
+      var api = (bridge && typeof bridge.getUnifiedCharacterChatResponse === "function")
+        ? bridge.getUnifiedCharacterChatResponse.bind(bridge) : null;
+      console.log("[charReply] api=", api);
+      if (!api) { console.log("[charReply] api 없음 → 종료"); return; }
+
+      Promise.resolve(api(text, { allowCharacterCall: true })).then(function(resp) {
+        console.log("[charReply] resp=", resp);
+        if (!resp || !resp.line) { console.log("[charReply] resp.line 없음 → 종료"); return; }
+        var replyText = String(resp.line).trim();
+        if (!replyText) return;
+        console.log("[charReply] 전송:", replyText);
+        sendCharacterMessage(replyText);
+        try {
+          if (window.parent && typeof window.parent.setEmotion === "function")
+            window.parent.setEmotion(resp.emotion || "기쁨", replyText);
+        } catch(e) {}
+      }).catch(function(e){ console.log("[charReply] Promise 에러", e); });
+    } catch(e) { console.log("[charReply] 전체 에러", e); }
+  }
+  // ────────────────────────────────────────────────────────────────────
 
   function sendCurrentMessage() {
     if (!msgInput) return;
