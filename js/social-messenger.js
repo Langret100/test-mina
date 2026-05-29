@@ -1714,40 +1714,33 @@ function __applyRelayMessage(msgInfo) {
       if (!text) return;
 
       var charName = getCharName();
-      console.log("[charReply] 호출됨 text=", text, "charName=", charName);
-      if (!charName) { console.log("[charReply] charName 없음 → 종료"); return; }
+      if (!charName) return;
 
       var compactText = text.replace(/\s+/g, "");
       var compactName = charName.replace(/\s+/g, "");
-      console.log("[charReply] 이름 포함 체크:", compactText, "includes", compactName, "→", compactText.includes(compactName));
       if (!compactText.includes(compactName)) return;
 
       var now = Date.now();
-      if (now - _charCooldown < _CHAR_COOLDOWN_MS) { console.log("[charReply] 쿨다운 중"); return; }
+      if (now - _charCooldown < _CHAR_COOLDOWN_MS) return;
       _charCooldown = now;
 
       var bridge = null;
-      try { bridge = window.parent && window.parent.GhostCoreBridge; } catch(e) { console.log("[charReply] bridge 접근 에러", e); }
-      console.log("[charReply] bridge=", bridge);
-
+      try { bridge = window.parent && window.parent.GhostCoreBridge; } catch(e) {}
       var api = (bridge && typeof bridge.getUnifiedCharacterChatResponse === "function")
         ? bridge.getUnifiedCharacterChatResponse.bind(bridge) : null;
-      console.log("[charReply] api=", api);
-      if (!api) { console.log("[charReply] api 없음 → 종료"); return; }
+      if (!api) return;
 
       Promise.resolve(api(text, { allowCharacterCall: true })).then(function(resp) {
-        console.log("[charReply] resp=", resp);
-        if (!resp || !resp.line) { console.log("[charReply] resp.line 없음 → 종료"); return; }
+        if (!resp || !resp.line) return;
         var replyText = String(resp.line).trim();
         if (!replyText) return;
-        console.log("[charReply] 전송:", replyText);
         sendCharacterMessage(replyText);
         try {
           if (window.parent && typeof window.parent.setEmotion === "function")
             window.parent.setEmotion(resp.emotion || "기쁨", replyText);
         } catch(e) {}
-      }).catch(function(e){ console.log("[charReply] Promise 에러", e); });
-    } catch(e) { console.log("[charReply] 전체 에러", e); }
+      }).catch(function(){});
+    } catch(e) {}
   }
   // ────────────────────────────────────────────────────────────────────
 
@@ -1758,9 +1751,11 @@ function __applyRelayMessage(msgInfo) {
       showStatus("보낼 내용을 입력해 주세요.");
       return;
     }
-    // 입력창은 미리 비우고 전송(키 입력 반복 방지)
     msgInput.value = "";
     sendTextMessage(text);
+    // 내가 보낸 메시지에 캐릭터 이름이 있으면 즉시 응답
+    // (Firebase dedup에 걸리기 전에 직접 호출)
+    try { maybeCharacterReply({ text: text, user_id: "", _charReply: false }); } catch(e) {}
   }
 
   function buildEmojiPanel() {
