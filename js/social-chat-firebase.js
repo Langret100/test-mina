@@ -602,46 +602,14 @@ try {
   if (window.SignalBus && typeof window.SignalBus.attach === "function") {
     var dbSig = ensureFirebase();
     if (dbSig) {
-      // 캐릭터 이름 호출 감지 → 자동 응답
-      var _charReplyCooldown = 0;
       window.SignalBus.attach({
         db: firebaseDb,
         getMyId: function () { return getSafeUserId(); },
-        onMessage: function (msgInfo) {
-          try {
-            var text = String(msgInfo.text || "").trim();
-            if (!text) return;
-            if (String(msgInfo.user_id || "") === "__char__") return;
-
-            var charName = String((window.currentCharacterName) || "미나");
-            if (!text.replace(/\s+/g,"").includes(charName.replace(/\s+/g,""))) return;
-
-            var now = Date.now();
-            if (now - _charReplyCooldown < 2500) return;
-            _charReplyCooldown = now;
-
-            Promise.resolve(window.GhostCoreBridge.getUnifiedCharacterChatResponse(text, { allowCharacterCall: true }))
-              .then(function(resp) {
-                if (!resp || !resp.line) return;
-                var reply = String(resp.line).trim();
-                if (!reply) return;
-                // iframe의 sendCharacterMessage 직접 호출
-                try {
-                  var frame = document.getElementById("gameFrame");
-                  if (frame && frame.contentWindow && typeof frame.contentWindow.sendCharacterMessage === "function") {
-                    frame.contentWindow.sendCharacterMessage(reply);
-                  } else if (frame && frame.contentWindow) {
-                    frame.contentWindow.postMessage({ type: "CHAR_REPLY", text: reply }, "*");
-                  }
-                } catch(e) {}
-                // 캐릭터 화면 감정 반영
-                try {
-                  if (typeof window.setEmotion === "function") window.setEmotion(resp.emotion || "기쁨", reply);
-                } catch(e) {}
-              }).catch(function(){});
-          } catch(e) {}
+        onSignal: function (info) {
+          // ※ 소통 채팅 메시지는 Firebase child_added(startListening)로 실시간 수신 중
+          //    onSignal에서 시트를 추가로 읽으면 느려지므로 제거
+          //    시트는 setModeSocial(true) 최초 진입 시 1회만 로드
         },
-        onSignal: function (info) {},
         onNotify: function () {}
       });
       if (typeof window.SignalBus.syncRooms === "function") {
