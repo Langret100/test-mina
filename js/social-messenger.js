@@ -424,14 +424,10 @@ var NotifySetting = (function () {
 
   function getCharName() {
     try {
-      // parent.currentCharacterName: core.js가 항상 최신값 유지
-      if (window.parent && window.parent !== window && window.parent.currentCharacterName) {
-        return String(window.parent.currentCharacterName);
+      var bridge = window.parent && window.parent.GhostCoreBridge;
+      if (bridge && typeof bridge.getCurrentCharacterName === "function") {
+        return String(bridge.getCurrentCharacterName());
       }
-      // parent.CHARACTERS에서 직접 읽기 (fallback)
-      var key = getCharKey();
-      var chars = window.parent && window.parent.CHARACTERS;
-      if (chars && chars[key] && chars[key].name) return String(chars[key].name);
     } catch (e) {}
     return "미나";
   }
@@ -1638,12 +1634,11 @@ function __applyRelayMessage(msgInfo) {
   // sendTextMessage와 동일한 흐름, 닉네임/user_id만 캐릭터로 교체
   function getCharName() {
     try {
-      if (window.parent && window.parent !== window && window.parent.currentCharacterName)
-        return String(window.parent.currentCharacterName);
-      var key = (window.parent && window.parent.currentCharacterKey)
-             || localStorage.getItem("ghostCurrentCharacter") || "mina";
-      var chars = window.parent && window.parent.CHARACTERS;
-      if (chars && chars[key] && chars[key].name) return String(chars[key].name);
+      // GhostCoreBridge가 정식 경로 (let 변수라 window.parent.currentCharacterName 직접접근 불가)
+      var bridge = window.parent && window.parent.GhostCoreBridge;
+      if (bridge && typeof bridge.getCurrentCharacterName === "function") {
+        return String(bridge.getCurrentCharacterName());
+      }
     } catch(e) {}
     return "미나";
   }
