@@ -2564,6 +2564,10 @@ attachEvents();
           switchRoom(d.roomId, null);
         }
       }
+      // core.js에서 캐릭터 응답을 postMessage로 전달받아 채팅에 전송
+      if (d.type === "CHAR_REPLY" && d.text) {
+        try { sendCharacterMessage(String(d.text)); } catch(e) {}
+      }
     } catch (e) {}
   });
 
@@ -2578,6 +2582,13 @@ attachEvents();
           switchRoom(d.roomId, null);
         }
       }
+      // 부모(core.js / social-chat-firebase.js)에서 캐릭터 응답 전달
+      if (d.type === "CHAR_REPLY" && d.text) {
+        try { sendCharacterMessage(String(d.text)); } catch(e) {}
+      }
     } catch (e) {}
   });
+
+  // 부모 페이지에서 직접 호출 가능하도록 노출
+  window.sendCharacterMessage = sendCharacterMessage;
 })();
