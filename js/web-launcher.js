@@ -168,6 +168,13 @@
   function handleCommand(rawText, options) {
     const original = String(rawText || "").trim();
     if (!original) return false;
+
+    // 원문 그대로 먼저 시도 (stripWakePrefix가 "마이파" 등을 잘못 제거하는 경우 방지)
+    const siteRaw = detectSite(original);
+    if (siteRaw && (isOpenCommand(original) || isDirectSiteOnlyCommand(original, siteRaw))) {
+      return openSite(siteRaw, options);
+    }
+
     const text = stripWakePrefix(original);
     const site = detectSite(text);
 
