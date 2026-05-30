@@ -47,12 +47,7 @@
   }
 
   function isOpenCommand(text) {
-    if (containsAny(text, ["열어줘", "열어 줘", "열어", "켜줘", "켜 줘", "켜", "들어가", "들어가줘", "접속해", "접속해줘", "접속해 줘", "접속", "틀어줘"])) return true;
-    // 사이트명만 단독으로 입력한 경우도 열기 명령으로 처리
-    const norm = normalize(text);
-    return SITES.some(function(site) {
-      return site.labels.some(function(label) { return norm === normalize(label); });
-    });
+    return containsAny(text, ["열어줘", "열어 줘", "열어", "켜줘", "켜 줘", "켜", "들어가", "들어가줘", "접속해", "접속해줘", "접속해 줘", "접속", "틀어줘"]);
   }
 
 
@@ -163,13 +158,6 @@
   function handleCommand(rawText, options) {
     const original = String(rawText || "").trim();
     if (!original) return false;
-
-    // 원문 그대로 먼저 시도 (stripWakePrefix가 "마이파" 등을 잘못 제거하는 경우 방지)
-    const siteRaw = detectSite(original);
-    if (siteRaw && (isOpenCommand(original) || isDirectSiteOnlyCommand(original, siteRaw))) {
-      return openSite(siteRaw, options);
-    }
-
     const text = stripWakePrefix(original);
     const site = detectSite(text);
 
