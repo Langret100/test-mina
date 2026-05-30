@@ -2055,7 +2055,8 @@ function parseSiteDisplayName(text) {
 function isWebCommandText(text) {
   const compact = String(text || "").replace(/\s+/g, "").toLowerCase();
   const hasSite = compact.includes("구글") || compact.includes("google") || compact.includes("유튜브") || compact.includes("youtube") || compact.includes("yt") || compact.includes("네이버") || compact.includes("naver") || compact.includes("마이파티") || compact.includes("multiroom") || compact.includes("멀티룸");
-  const wantsOpen = /열어줘|열어|켜줘|켜|들어가|접속해|틀어줘/.test(compact);
+  const wantsOpen = /열어줘|열어|켜줘|켜|들어가|접속해|접속|틀어줘/.test(compact) ||
+    ["구글","google","유튜브","youtube","yt","네이버","naver","마이파티","multiroom","멀티룸"].includes(compact);
   const wantsClose = /닫아|닫아줘|꺼줘|꺼|기본화면|돌아가|홈으로/.test(compact);
   return { hasSite, wantsOpen, wantsClose };
 }
